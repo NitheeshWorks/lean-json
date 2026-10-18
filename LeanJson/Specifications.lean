@@ -1,1 +1,8 @@
-import LeanJson.Specifications.Basic
+import LeanJson.Specifications.Json
+
+/-!
+# Specifications
+
+The properties, stated in `Prop`, in terms of `DataTypes` and `RepoImpl`.
+Nothing here is proved; this is the contract.
+-/

@@ -1,2 +1,8 @@
-import LeanJson.Proofs.Basic
 import LeanJson.Proofs.Verified
+
+/-!
+# Proofs
+
+Theorems discharging `Specifications`. No admitted proof; CI checks that
+every theorem reaches only `propext`, `Quot.sound` and `Classical.choice`.
+-/

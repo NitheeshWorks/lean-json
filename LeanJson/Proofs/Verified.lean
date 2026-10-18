@@ -1,4 +1,4 @@
-import LeanJson.Proofs.Basic
+import LeanJson.APIs
 
 /-!
 # The harness: one `Verified<Layer>` structure per layer

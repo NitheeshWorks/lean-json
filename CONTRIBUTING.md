@@ -50,6 +50,48 @@ be a Hoare triple over a heap.
 Listed here with the reason, and in `docs/traceability.toml` with
 `status = "tested"`. (Nothing yet.)
 
+## Why not `Lean.Json` <a name="why-not-lean-json"></a>
+
+The plan proposed re-exporting core `Lean.Json`. Checked against v4.35 it
+cannot carry the round trip the plan asks for, so `LeanJson.Json` is this
+library's own inductive, with `Json.toLean` / `Json.ofLean` bridges:
+
+* `Lean.Json.obj` holds a `Std.TreeMap.Raw String Json`: keys sorted, one
+  value per key. pydantic-core's parser (jiter) keeps members in document
+  order and keeps duplicate keys (lookup is last-wins). A round trip
+  `parse (print v) = v` against `Lean.Json` would hold only up to key order
+  and duplicates, and `print_injective` would be false.
+* `Lean.JsonNumber` is `mantissa * 10^-exponent` with `exponent : Nat`: it
+  cannot tell the integer `1` from the float `1e0`, and has no `-0.0`.
+  pydantic-core distinguishes int from float literals (`int_from_float`
+  errors depend on it), and Python keeps `-0.0`.
+* Core's parser, `compress` and `render` are `partial def`, so nothing about
+  them is provable.
+
+So: `Json.obj : List (String × Json)` (order and duplicates kept, as jiter),
+`Json.arr : List Json`, and `Number := int Int | float Decimal`, where
+`Decimal` is an exact normalised decimal with a sign bit (invariant
+`h_norm` is a field). `Json.getObjVal?` is last-wins and `Json.dedupKeys`
+gives Python `dict` semantics (first position, last value).
+
+## Decisions following upstream
+
+* **Duplicate keys** are kept by the parser, in order, exactly as jiter's
+  `JsonValue`; lookup is last-wins (`tests/test_json.py::test_dict`).
+* **Big integers** are `Int`, unbounded (jiter `BigInt`,
+  `tests/validators/test_int.py::test_long_json`).
+* **Floats** are kept exactly as decimals. Upstream rounds to an IEEE double
+  (so `1e400` becomes `inf`); `Number.toFloat` does that rounding on demand.
+  Deviation: exactness rather than early rounding.
+* **Float printing** follows serde_json/ryu (`1.0`, `1e16`, `1e-7`,
+  `1.5e300`), which is what `to_json` emits.
+* **NaN / Infinity** are not representable and are rejected by the parser.
+  Deviation: `from_json` accepts them by default (`allow_inf_nan=True`).
+* **No recursion limit.** jiter stops at depth 200; this parser is total by
+  fuel and has no depth limit. Deviation.
+* **Error messages** use jiter's texts and its line/column convention
+  (`EOF while parsing a string at line 1 column 7`).
+
 ## Tests
 
 * `tests/Props.lean`: seeded property tests, no dependencies, under a second.
