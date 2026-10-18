@@ -12,6 +12,7 @@ import LeanJson.Proofs.Codec
 import LeanJson.Proofs.Compact
 import LeanJson.Proofs.Builder
 import LeanJson.Proofs.Partial
+import LeanJson.Proofs.Dedup
 import LeanJson.Proofs.Verified
 
 /-!

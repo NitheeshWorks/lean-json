@@ -130,6 +130,22 @@ def dedupKeys (kvs : Array (String × Json)) : Array (String × Json) :=
   (kvs.foldl (fun st kv => st.add true kv.1 kv.2) Fields.empty).1
 
 mutual
+/-- `j` with repeated keys collapsed at every depth, as a Python `dict` holds
+them (`dedupKeysList`): what the parser returns under `ParseCfg.dedupKeys`
+for what it returns without (`parse_dedup`). -/
+def dedupDeep : Json → Json
+  | .arr ⟨xs⟩ => .arr ⟨dedupDeepList xs⟩
+  | .obj ⟨kvs⟩ => .obj ⟨dedupKeysList (dedupDeepFields kvs)⟩
+  | j => j
+def dedupDeepList : List Json → List Json
+  | [] => []
+  | x :: xs => x.dedupDeep :: dedupDeepList xs
+def dedupDeepFields : List (String × Json) → List (String × Json)
+  | [] => []
+  | (k, v) :: kvs => (k, v.dedupDeep) :: dedupDeepFields kvs
+end
+
+mutual
 /-- Every number in `j` is finite (no `NaN` or infinity): `j` is RFC 8259 JSON. -/
 def allFinite : Json → Bool
   | .num n => n.isFinite

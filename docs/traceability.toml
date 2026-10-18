@@ -138,8 +138,8 @@ id = "keys.duplicates"
 upstream = "tests/test_json.py::test_dict"
 title = "Duplicate object keys collapse as from_json's dict does (last value, first position), while parsing; ParseCfg.dedupKeys := false keeps them; lookup is last-wins"
 status = "implemented"
-realises = ["LeanJson.Fields.add", "LeanJson.dictInsert", "LeanJson.KeyIndex", "LeanJson.KeyIndex.find", "LeanJson.KeyIndex.add", "LeanJson.keySlot", "LeanJson.ParseCfg", "LeanJson.Json.getObjVal?", "LeanJson.Json.lookupLast", "LeanJson.Json.dedupKeys", "LeanJson.Json.dedupKeysList"]
-theorem = ["LeanJson.Fields.add_exact", "LeanJson.dedupKeys_eq", "LeanJson.Fields.add_fresh", "LeanJson.Fields.mem_add", "LeanJson.parseMembers_ext", "LeanJson.fits_default", "LeanJson.parse_canonical"]
+realises = ["LeanJson.Fields.add", "LeanJson.dictInsert", "LeanJson.KeyIndex", "LeanJson.KeyIndex.find", "LeanJson.KeyIndex.add", "LeanJson.keySlot", "LeanJson.ParseCfg", "LeanJson.Json.getObjVal?", "LeanJson.Json.lookupLast", "LeanJson.Json.dedupKeys", "LeanJson.Json.dedupKeysList", "LeanJson.Json.dedupDeep"]
+theorem = ["LeanJson.parse_dedup", "LeanJson.parseDocumentIn_dedup", "LeanJson.Fields.add_exact", "LeanJson.dedupKeys_eq", "LeanJson.Fields.add_fresh", "LeanJson.Fields.mem_add", "LeanJson.parseMembers_ext", "LeanJson.fits_default", "LeanJson.parse_canonical"]
 test = ["tests/Conformance.lean::duplicate keys: last value wins", "tests/Conformance.lean::duplicate keys collapse at every depth", "tests/Conformance.lean::dedupKeys := false keeps every member; Json.dedupKeys collapses them", "tests/Props.lean::dedupKeys keeps last values, distinct keys, first positions", "tests/Props.lean::parse (print v) = v, compact", "tests/Bench.lean", "tests/CollideGen.lean", "tests/fixtures/collide-keys.txt"]
 
 [[requirement]]

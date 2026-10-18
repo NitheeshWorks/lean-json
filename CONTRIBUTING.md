@@ -101,8 +101,9 @@ Listed here with the reason, and in `docs/traceability.toml` with
   (`Fields.add_exact`), so `Json.dedupKeys` is `Json.dedupKeysList`
   (`dedupKeys_eq`); the round trip on values with distinct keys
   (`Fields.add_fresh`); and that it returns only members it read
-  (`Fields.mem_add`). Not yet proved: that a collapsing parse equals
-  `dedupKeys` applied at every depth to the uncollapsed parse.
+  (`Fields.mem_add`); and that a collapsing parse is `Json.dedupDeep`
+  (the specification at every depth) of the parse that keeps every member,
+  errors included (`parse_dedup`, `Proofs/Dedup.lean`).
 * **Peak memory and time**: `tests/Bench.lean`, asserted in CI (the parse adds
   at most 8 × the input + 32 MB).
 * **Error kinds and offsets** for malformed input: the proofs cover what valid

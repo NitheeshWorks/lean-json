@@ -1,4 +1,5 @@
 import LeanJson.Proofs.Compact
+import LeanJson.Proofs.Dedup
 
 /-!
 # The harness: one `Verified<Layer>` structure per layer
@@ -47,6 +48,10 @@ structure VerifiedJson where
   /-- Collapsing repeated keys through the seeded index is the `dict`
   specification: first position, last value. -/
   dedupKeys : ∀ kvs : Array (String × Json), Json.dedupKeys kvs = (Json.dedupKeysList kvs.toList).toArray
+  /-- …and the collapsing parser returns that specification applied at every
+  depth to what the parser keeping every member returns. -/
+  parseDedup : ∀ (cfg : ParseCfg) (bs : ByteArray), cfg.dedupKeys = true →
+    parseDocumentWith cfg bs = (parseDocumentWith { cfg with dedupKeys := false } bs).map Json.dedupDeep
 
 /-- The JSON layer, verified. -/
 def theVerifiedJson : VerifiedJson where
@@ -63,5 +68,6 @@ def theVerifiedJson : VerifiedJson where
   strictFinite _ _ h := parse_finite rfl h
   depthBound _ _ h := parseDocument_height h
   dedupKeys := dedupKeys_eq
+  parseDedup cfg bs hd := parse_dedup cfg hd bs
 
 end LeanJson
