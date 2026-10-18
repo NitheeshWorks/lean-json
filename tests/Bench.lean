@@ -85,6 +85,37 @@ def wideKeys (mb : Nat) (period : Nat := 0) : ByteArray := Id.run do
     i := i + 1
   b.push 125
 
+/-- 20000 keys of 1000 characters each (`"k0xxx…":0,…`). -/
+def longKeys (_ : Unit) : ByteArray := Id.run do
+  let mut b := ByteArray.emptyWithCapacity 20300000
+  b := b.push 123
+  for i in [0:20000] do
+    if i > 0 then b := b.push 44
+    let k := s!"k{i}"
+    b := b ++ s!"\"{k}{String.ofList (List.replicate (1000 - k.length) 'x')}\":{i}".toUTF8
+  b.push 125
+
+/-- One string of `mb` MB of a repeated escape `esc` (`\\n`, or a surrogate
+pair `\\ud83d\\ude00`). -/
+def escapeString (mb : Nat) (esc : String) : ByteArray := Id.run do
+  let e := esc.toUTF8
+  let reps := mb * 1000000 / e.size
+  let mut b := ByteArray.emptyWithCapacity (reps * e.size + 2)
+  b := b.push 34
+  for _ in [0:reps] do
+    b := b ++ e
+  b.push 34
+
+/-- 5000 integers of 4000 digits. -/
+def bigInts (_ : Unit) : ByteArray := Id.run do
+  let d := (String.join (List.replicate 400 "1234567890")).toUTF8
+  let mut b := ByteArray.emptyWithCapacity (5000 * 4001 + 2)
+  b := b.push 91
+  for i in [0:5000] do
+    if i > 0 then b := b.push 44
+    b := b ++ d
+  b.push 93
+
 def strings (mb : Nat) : ByteArray := Id.run do
   let item := "\"hello world, a medium string\"".toUTF8
   let n := mb * 1000000 / (item.size + 1)
@@ -172,6 +203,10 @@ def main (args : List String) : IO UInt32 := do
     | "wide" => wideKeys mb
     | "dups" => wideKeys mb 1000
     | "collide" => collideObject keys mb
+    | "longkeys" => longKeys ()
+    | "escapes" => escapeString mb "\\n"
+    | "surrogates" => escapeString mb "\\ud83d\\ude00"
+    | "bigints" => bigInts ()
     | _ => flatArray mb
   let base ← peakKB
   let t ← IO.monoMsNow

@@ -62,10 +62,25 @@ termination_by n - pos
   | _, 0, acc => acc
   | start, k + 1, acc => smallValue get (start + 1) k (acc * 10 + digitAt get start)
 
-/-- The value of the `len` digits from `start`, by divide and conquer, so a
-long digit run costs a few big multiplications rather than one per digit. -/
+/-- `10^18`, built once (a literal this large would be rebuilt from its
+digits at every use in compiled code). -/
+def chunkBase : Nat := 10 ^ 18
+
+/-- `k` runs of 18 digits from `start`, appended to `acc` (Horner's rule in
+base `10^18`): one small multiplication per 18 digits. -/
+@[specialize] def chunkValue (get : Nat → Option UInt8) : (start k acc : Nat) → Nat
+  | _, 0, acc => acc
+  | start, k + 1, acc => chunkValue get (start + 18) k (acc * chunkBase + smallValue get start 18 0)
+
+/-- The value of the `len` digits from `start`: machine arithmetic up to 18
+digits, Horner's rule in base `10^18` up to 4320 (Python's integer limit is
+4300), and divide and conquer beyond, so a very long digit run costs a few
+big multiplications rather than a quadratic number of small ones. -/
 @[specialize] def digitsValue (get : Nat → Option UInt8) (start len : Nat) : Nat :=
-  if len ≤ 16 then smallValue get start len 0
+  if len ≤ 18 then smallValue get start len 0
+  else if len ≤ 600 then
+    let r := len % 18
+    chunkValue get (start + r) (len / 18) (smallValue get start r 0)
   else
     let h := len / 2
     digitsValue get start h * 10 ^ (len - h) + digitsValue get (start + h) (len - h)
@@ -166,32 +181,43 @@ is extended in place. -/
     let i := acc.size
     (acc.push (k, v), idx.add k i)
 
+/-- The integers below `m` as values. -/
+def smallIntsUpTo (m : Nat) : Array Json := Array.ofFn (n := m) fun k => .num (.int k)
+
 /-- The integers `0` to `1023` as values, built once: the parser returns these
 shared objects instead of allocating a fresh value per small integer. -/
-def smallInts : Array Json := Array.ofFn (n := 1024) fun k => .num (.int k)
+def smallInts : Array Json := smallIntsUpTo 1024
 
-/-- `.num n`, shared when `n` is a small non-negative integer
-(`Json.ofNumber_eq`). -/
-def Json.ofNumber (n : Number) : Json :=
+/-- `.num n`, taken from the table `tbl` when `n` is a non-negative integer
+it holds. -/
+@[inline] def Json.ofNumberIn (tbl : Array Json) (n : Number) : Json :=
   match n with
   | .int (.ofNat k) =>
-    match smallInts[k]? with
+    match tbl[k]? with
     | some j => j
     | none => .num n
   | _ => .num n
 
-theorem Json.ofNumber_eq (n : Number) : Json.ofNumber n = .num n := by
-  unfold Json.ofNumber
+/-- Stated for every table size, so that the kernel never builds the
+1024-element table. -/
+theorem Json.ofNumberIn_eq (m : Nat) (n : Number) : Json.ofNumberIn (smallIntsUpTo m) n = .num n := by
+  unfold Json.ofNumberIn
   split
   · rename_i k
     split
     · rename_i j h
-      simp only [smallInts, Array.getElem?_ofFn] at h
+      simp only [smallIntsUpTo, Array.getElem?_ofFn] at h
       split at h
       · cases h; rfl
       · cases h
     · rfl
   · rfl
+
+/-- `.num n`, shared when `n` is a small non-negative integer
+(`Json.ofNumber_eq`). -/
+@[inline] def Json.ofNumber (n : Number) : Json := Json.ofNumberIn smallInts n
+
+theorem Json.ofNumber_eq (n : Number) : Json.ofNumber n = .num n := Json.ofNumberIn_eq 1024 n
 
 /-- An object under construction: its members so far, and (when keys are
 collapsed) where each key sits. -/
@@ -260,7 +286,7 @@ having started at `pos`. -/
 
 /-- Four hex digits at `pos`. Fewer than four bytes left is `EOF while
 parsing a string` at the end of input, as jiter reports it. -/
-@[specialize] def parseHex4 (get : Nat → Option UInt8) (n pos : Nat) : Except ParseErr Nat :=
+@[inline] def parseHex4 (get : Nat → Option UInt8) (n pos : Nat) : Except ParseErr Nat :=
   if n < pos + 4 then .error ⟨.eofWhileParsingString, n⟩ else
   match hexAt get pos, hexAt get (pos + 1), hexAt get (pos + 2), hexAt get (pos + 3) with
   | .ok a, .ok b, .ok c, .ok d => .ok (a * 4096 + b * 256 + c * 16 + d)

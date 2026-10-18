@@ -30,6 +30,46 @@ namespace LeanJson
 bounds check and a byte load, with no `Option` allocated. -/
 @[inline] def bv (bs : ByteArray) : Nat → Option UInt8 := fun k => bs[k]?
 
+/-- The values `some b` for the bytes below `m`. -/
+def someBytesUpTo (m : Nat) : Array (Option UInt8) := Array.ofFn (n := m) fun i => some (UInt8.ofNat i.val)
+
+/-- `some b` for every byte, built once and shared. -/
+def someBytes : Array (Option UInt8) := someBytesUpTo 256
+
+/-- `some b`, taken from the shared table: no allocation. -/
+@[inline] def someByteIn (tbl : Array (Option UInt8)) (b : UInt8) : Option UInt8 :=
+  match tbl[b.toNat]? with
+  | some o => o
+  | none => some b
+
+/-- Stated for every table size, so the kernel never builds the table. -/
+theorem someByteIn_eq (m : Nat) (b : UInt8) : someByteIn (someBytesUpTo m) b = some b := by
+  unfold someByteIn
+  split
+  · rename_i o h
+    simp only [someBytesUpTo, Array.getElem?_ofFn] at h
+    split at h
+    · cases h; simp
+    · cases h
+  · rfl
+
+/-- `bv` reading through the shared `some b` table: where a read is not
+inlined (a byte read through a view that the compiler lifted into a
+function), it returns a shared object instead of allocating one per byte.
+Equal to `bv` (`bv_eq_fast`), and what the compiler runs (`@[csimp]`). -/
+@[inline] def bvFast (bs : ByteArray) : Nat → Option UInt8 := fun k =>
+  if h : k < bs.size then someByteIn someBytes bs[k] else none
+
+@[csimp] theorem bv_eq_fast : @bv = @bvFast := by
+  funext bs k
+  unfold bv bvFast
+  split
+  · rename_i h
+    rw [show someBytes = someBytesUpTo 256 from rfl, someByteIn_eq]
+    simp [h]
+  · rename_i h
+    simp [h]
+
 /-- Move a result's positions (its end position, or its error offset) on by
 `k`: a result read in a view rebased at `k`, seen from the enclosing view. -/
 @[inline] def shiftRes {α : Type} (k : Nat) : Except ParseErr (α × Nat) → Except ParseErr (α × Nat)
@@ -137,6 +177,31 @@ Positions are relative to `base`. -/
   | 0, _ => .error ⟨.recursionLimitExceeded, 0⟩
   | d + 1, base =>
     valueStep cfg (fun j => shiftRes j (valueGo cfg get n d (base + j))) (fun k => get (base + k)) (n - base)
+
+/-- The view `get` rebased at `base`. A named inline function rather than a
+lambda: passed to the specialised `valueStep`, it inlines into each byte
+read, which then compiles to a bounds check and a load, where a lambda would
+be lifted into a function returning an allocated `Option` per byte. -/
+@[inline] def rebase (get : Nat → Option UInt8) (base k : Nat) : Option UInt8 := get (base + k)
+
+/-- `valueGo` with its views written through `rebase`; equal to it
+(`valueGo_eq_fast`), and what the compiler runs (`@[csimp]`). -/
+@[specialize] def valueGoFast (cfg : ParseCfg) (get : Nat → Option UInt8) (n : Nat) :
+    (d base : Nat) → Except ParseErr (Json × Nat)
+  | 0, _ => .error ⟨.recursionLimitExceeded, 0⟩
+  | d + 1, base =>
+    valueStep cfg (fun j => shiftRes j (valueGoFast cfg get n d (base + j))) (rebase get base) (n - base)
+
+theorem valueGo_eq_fast_at (cfg : ParseCfg) (get : Nat → Option UInt8) (n : Nat) :
+    ∀ d base, valueGo cfg get n d base = valueGoFast cfg get n d base
+  | 0, _ => rfl
+  | d + 1, base => by
+    rw [valueGo, valueGoFast]
+    simp only [valueGo_eq_fast_at cfg get n d]
+    rfl
+
+@[csimp] theorem valueGo_eq_fast : @valueGo = @valueGoFast := by
+  funext cfg get n d base; exact valueGo_eq_fast_at cfg get n d base
 
 /-- The nesting budget for a view of `n` bytes: jiter's limit, or, with no
 limit, more levels than the bytes can open. -/

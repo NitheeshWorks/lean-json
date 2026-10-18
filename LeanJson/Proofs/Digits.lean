@@ -262,13 +262,53 @@ theorem smallValue_ext {get : Nat → Option UInt8} {n : Nat} {R : List UInt8} :
     rw [hv]
     exact smallValue_ext ds (start + 1) _ (fun x hx => hd x (by simp [hx])) (AtV.next h)
 
+theorem chunkValue_ext {get : Nat → Option UInt8} {n : Nat} {R : List UInt8} :
+    ∀ (k : Nat) (ds : List Nat) (start acc : Nat), ds.length = 18 * k → (∀ d ∈ ds, d < 10) →
+      AtV get n start (ds.map digitByte) R →
+      chunkValue get start k acc = ds.foldl (fun a d => a * 10 + d) acc
+  | 0, ds, _, acc, hl, _, _ => by
+    have : ds = [] := List.length_eq_zero_iff.mp (by simpa using hl)
+    subst this; rfl
+  | k + 1, ds, start, acc, hl, hd, h => by
+    rw [chunkValue]
+    have hsplit : ds.map digitByte = (ds.take 18).map digitByte ++ (ds.drop 18).map digitByte := by
+      rw [← List.map_append, List.take_append_drop]
+    rw [hsplit] at h
+    have h1 := h.assoc
+    have h2 := h.app
+    have l1 : (ds.take 18).length = 18 := by simp; omega
+    simp only [List.length_map, l1] at h2
+    have e1 := smallValue_ext (ds.take 18) start 0 (fun d hd' => hd d (List.mem_of_mem_take hd')) h1
+    rw [l1] at e1
+    rw [e1, chunkValue_ext k (ds.drop 18) (start + 18) _ (by simp; omega)
+      (fun d hd' => hd d (List.mem_of_mem_drop hd')) h2]
+    rw [← List.take_append_drop 18 ds, List.foldl_append, List.take_append_drop, foldl_digits _ acc, l1]
+    rfl
+
 theorem digitsValue_ext {get : Nat → Option UInt8} {n : Nat} {R : List UInt8} (ds : List Nat) (start : Nat)
     (hd : ∀ d ∈ ds, d < 10) (h : AtV get n start (ds.map digitByte) R) :
     digitsValue get start ds.length = ofDigits ds := by
   rw [digitsValue]
-  by_cases hs : ds.length ≤ 16
+  by_cases hs : ds.length ≤ 18
   · rw [ite_eq_left hs, smallValue_ext ds start 0 hd h]; rfl
   · rw [ite_eq_right hs]
+    by_cases hm : ds.length ≤ 600
+    · rw [ite_eq_left hm]
+      simp only
+      have hsplit : ds.map digitByte = (ds.take (ds.length % 18)).map digitByte ++
+          (ds.drop (ds.length % 18)).map digitByte := by
+        rw [← List.map_append, List.take_append_drop]
+      rw [hsplit] at h
+      have h1 := h.assoc
+      have h2 := h.app
+      have l1 : (ds.take (ds.length % 18)).length = ds.length % 18 := by simp; omega
+      simp only [List.length_map, l1] at h2
+      have e1 := smallValue_ext _ start 0 (fun d hd' => hd d (List.mem_of_mem_take hd')) h1
+      rw [l1] at e1
+      rw [e1, chunkValue_ext (ds.length / 18) _ _ _ (by simp; omega)
+        (fun d hd' => hd d (List.mem_of_mem_drop hd')) h2, ← List.foldl_append, List.take_append_drop]
+      rfl
+    rw [ite_eq_right hm]
     simp only
     have hlen : ds.length / 2 = (ds.take (ds.length / 2)).length := by simp; omega
     have hlen2 : ds.length - ds.length / 2 = (ds.drop (ds.length / 2)).length := by simp

@@ -30,7 +30,7 @@ theorem Fields.isAt_iff {acc : Array (String × Json)} {j : Nat} {a : String} :
 
 /-- Every table entry is a position in bounds, filed under its key's slot. -/
 def Fields.Wf (st : Fields) : Prop :=
-  ∀ h j, st.2.table[h]? = some j → ∃ hj : j < st.1.size, keySlot st.1[j].1 = h
+  ∀ h j, st.2.table[(⟨h⟩ : SlotKey)]? = some j → ∃ hj : j < st.1.size, keySlot st.1[j].1 = h
 
 /-- The index is well formed and names only keys that are present. -/
 def Fields.Indexed (st : Fields) : Prop := st.Wf ∧ ∀ a, st.2.spill[a]? ≠ none → a ∈ st.keys
@@ -42,7 +42,7 @@ theorem Fields.indexed_empty : Fields.empty.Indexed :=
 theorem Fields.find_mem {st : Fields} {a : String} (hi : st.Indexed) (h : st.find a ≠ none) :
     a ∈ st.keys := by
   simp only [Fields.find, KeyIndex.find] at h
-  cases ht : st.2.table[keySlot a]? with
+  cases ht : st.2.table[(⟨keySlot a⟩ : SlotKey)]? with
   | none => simp [ht] at h
   | some j =>
     simp only [ht, Option.bind_some] at h
@@ -68,13 +68,13 @@ theorem Fields.wf_add {acc : Array (String × Json)} {x : KeyIndex} {k : String}
   simp only [KeyIndex.add] at hj
   split at hj
   · exact Fields.wf_push hw h j hj
-  · simp only [Std.HashMap.getElem?_insert, beq_iff_eq] at hj
+  · simp only [Std.HashMap.getElem?_insert, beq_iff_eq, SlotKey.mk.injEq] at hj
     split at hj
     · rename_i e; cases hj; exact ⟨by simp, by simpa using e⟩
     · exact Fields.wf_push hw h j hj
 
 theorem Fields.spill_add {x : KeyIndex} {k a : String} {i : Nat} :
-    (x.add k i).spill[a]? = if x.table.contains (keySlot k) ∧ k = a then some i else x.spill[a]? := by
+    (x.add k i).spill[a]? = if x.table.contains (⟨keySlot k⟩ : SlotKey) ∧ k = a then some i else x.spill[a]? := by
   simp only [KeyIndex.add]
   split
   · rename_i hc
@@ -181,7 +181,7 @@ theorem insertLast_of_none {k : String} {v : Json} : ∀ {l : List (String × Js
 key's slot is taken, and the index answers exactly the first position of
 every key. -/
 def Fields.Exact (st : Fields) : Prop :=
-  st.Wf ∧ (∀ a, st.2.spill[a]? ≠ none → st.2.table[keySlot a]? ≠ none) ∧
+  st.Wf ∧ (∀ a, st.2.spill[a]? ≠ none → st.2.table[(⟨keySlot a⟩ : SlotKey)]? ≠ none) ∧
     ∀ a, st.find a = firstPos a st.keys
 
 theorem Fields.exact_empty : Fields.empty.Exact :=
@@ -252,7 +252,7 @@ theorem Fields.add_exact {st : Fields} {k : String} {v : Json} (hx : st.Exact) :
         · exact hsp a ha
       · rename_i hc
         rw [ite_eq_right (fun e => hc e.1)] at ha
-        simp only [Std.HashMap.getElem?_insert, beq_iff_eq]
+        simp only [Std.HashMap.getElem?_insert, beq_iff_eq, SlotKey.mk.injEq]
         split
         · simp
         · exact hsp a ha
@@ -263,10 +263,10 @@ theorem Fields.add_exact {st : Fields} {k : String} {v : Json} (hx : st.Exact) :
       rw [← show Fields.find (acc, x) a = _ from hf a]
       simp only [Fields.find, KeyIndex.find, KeyIndex.add, List.length_map, Array.length_toList]
       simp only [KeyIndex.find] at hk
-      have hb : ∀ j, x.table[keySlot a]? = some j → j < acc.size := fun j hj => (hw _ j hj).1
-      by_cases hc : x.table.contains (keySlot k) = true
+      have hb : ∀ j, x.table[(⟨keySlot a⟩ : SlotKey)]? = some j → j < acc.size := fun j hj => (hw _ j hj).1
+      by_cases hc : x.table.contains (⟨keySlot k⟩ : SlotKey) = true
       · simp only [hc, ↓reduceIte, Std.TreeMap.getElem?_insert, Std.compare_eq_iff_eq]
-        cases ht : x.table[keySlot a]? with
+        cases ht : x.table[(⟨keySlot a⟩ : SlotKey)]? with
         | none =>
           have : ¬ k = a := by
             rintro rfl; rw [Std.HashMap.contains_eq_isSome_getElem?, ht] at hc; cases hc
@@ -282,9 +282,9 @@ theorem Fields.add_exact {st : Fields} {k : String} {v : Json} (hx : st.Exact) :
               simp only [Option.bind_some, hj, Bool.false_eq_true, ↓reduceIte] at hk
               simp [hk]
             · simp [e]
-      · simp only [hc, Bool.false_eq_true, ↓reduceIte, Std.HashMap.getElem?_insert, beq_iff_eq]
-        have hk0 : x.table[keySlot k]? = none := by
-          cases h : x.table[keySlot k]? with
+      · simp only [hc, Bool.false_eq_true, ↓reduceIte, Std.HashMap.getElem?_insert, beq_iff_eq, SlotKey.mk.injEq]
+        have hk0 : x.table[(⟨keySlot k⟩ : SlotKey)]? = none := by
+          cases h : x.table[(⟨keySlot k⟩ : SlotKey)]? with
           | none => rfl
           | some _ => rw [Std.HashMap.contains_eq_isSome_getElem?, h] at hc; simp at hc
         by_cases he : keySlot k = keySlot a
@@ -299,7 +299,7 @@ theorem Fields.add_exact {st : Fields} {k : String} {v : Json} (hx : st.Exact) :
         · rw [ite_eq_right he]
           have e : ¬ k = a := fun e => he (congrArg keySlot e)
           simp only [e, ↓reduceIte, Option.or_none]
-          cases ht : x.table[keySlot a]? with
+          cases ht : x.table[(⟨keySlot a⟩ : SlotKey)]? with
           | none => rfl
           | some j => simp only [Option.bind_some, hat j a (hb j ht)]
 

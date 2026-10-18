@@ -51,7 +51,7 @@ def digitByte (d : Nat) : UInt8 := UInt8.ofNat (48 + d)
 def hexByte (d : Nat) : UInt8 := if d < 10 then UInt8.ofNat (48 + d) else UInt8.ofNat (87 + d)
 
 /-- The value of an ASCII hex digit, either case. -/
-def hexVal (b : UInt8) : Option Nat :=
+@[inline] def hexVal (b : UInt8) : Option Nat :=
   if 48 ≤ b && b ≤ 57 then some (b.toNat - 48)
   else if 97 ≤ b && b ≤ 102 then some (b.toNat - 87)
   else if 65 ≤ b && b ≤ 70 then some (b.toNat - 55)
