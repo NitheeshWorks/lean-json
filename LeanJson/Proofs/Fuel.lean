@@ -291,4 +291,107 @@ theorem parse_fuel_enough : Spec.FuelEnough parseValue := by
   intro bs pos e he
   exact parseValue_enough bs _ pos (by omega) e he
 
+mutual
+theorem parseValue_mono (bs : ByteArray) : ∀ (n m pos : Nat) (r : Except ParseErr (Json × Nat)),
+    n ≤ m → parseValue bs pos n = r → NotFuel r → parseValue bs pos m = r
+  | 0, m, pos, r, _, h, hnf => by
+    subst h; exact absurd rfl (hnf _ rfl)
+  | n + 1, m, pos, r, hle, h, hnf => by
+    obtain ⟨m', rfl⟩ : ∃ m', m = m' + 1 := ⟨m - 1, by omega⟩
+    unfold parseValue at h ⊢
+    try simp only at h ⊢
+    generalize skipWs bs pos bs.size = q at h ⊢
+    split at h
+    · rename_i hb; (try rw [hb]); exact h
+    rename_i b hb
+    (try rw [hb]); try simp only
+    by_cases c34 : (b == 34) = true
+    · rw [ite_eq_left c34] at h ⊢; exact h
+    rw [ite_eq_right c34] at h ⊢
+    by_cases c91 : (b == 91) = true
+    · rw [ite_eq_left c91] at h ⊢
+      generalize skipWs bs (q + 1) bs.size = p at h ⊢
+      split at h
+      · rename_i hp; (try rw [hp]); exact h
+      · rename_i hp; (try rw [hp]); exact h
+      · exact parseElems_mono bs n m' p [] r (by omega) h hnf
+    rw [ite_eq_right c91] at h ⊢
+    by_cases c123 : (b == 123) = true
+    · rw [ite_eq_left c123] at h ⊢
+      generalize skipWs bs (q + 1) bs.size = p at h ⊢
+      split at h
+      · rename_i hp; (try rw [hp]); exact h
+      · rename_i hp; (try rw [hp]); exact h
+      · rename_i hp; (try rw [hp]); exact parseMembers_mono bs n m' p [] r (by omega) h hnf
+      · exact h
+    rw [ite_eq_right c123] at h ⊢
+    exact h
+theorem parseElems_mono (bs : ByteArray) : ∀ (n m pos : Nat) (acc : List Json) (r : Except ParseErr (Json × Nat)),
+    n ≤ m → parseElems bs pos n acc = r → NotFuel r → parseElems bs pos m acc = r
+  | 0, m, pos, acc, r, _, h, hnf => by
+    subst h; exact absurd rfl (hnf _ rfl)
+  | n + 1, m, pos, acc, r, hle, h, hnf => by
+    obtain ⟨m', rfl⟩ : ∃ m', m = m' + 1 := ⟨m - 1, by omega⟩
+    unfold parseElems at h ⊢
+    split at h
+    · rename_i e hv
+      subst h
+      rw [parseValue_mono bs n m' pos _ (by omega) hv hnf]
+    · rename_i v p1 hv
+      rw [parseValue_mono bs n m' pos _ (by omega) hv (by intro e he; cases he)]
+      try simp only at h ⊢
+      generalize skipWs bs p1 bs.size = p at h ⊢
+      split at h
+      · rename_i hp; (try rw [hp]); exact h
+      · rename_i hp; (try rw [hp]); try simp only at h ⊢
+        generalize skipWs bs (p + 1) bs.size = q at h ⊢
+        split at h
+        · rename_i c; rw [ite_eq_left c]; exact h
+        · rename_i c; rw [ite_eq_right c]; exact parseElems_mono bs n m' q _ r (by omega) h hnf
+      · rename_i hp; (try rw [hp]); exact h
+      · exact h
+theorem parseMembers_mono (bs : ByteArray) : ∀ (n m pos : Nat) (acc : List (String × Json))
+    (r : Except ParseErr (Json × Nat)),
+    n ≤ m → parseMembers bs pos n acc = r → NotFuel r → parseMembers bs pos m acc = r
+  | 0, m, pos, acc, r, _, h, hnf => by
+    subst h; exact absurd rfl (hnf _ rfl)
+  | n + 1, m, pos, acc, r, hle, h, hnf => by
+    obtain ⟨m', rfl⟩ : ∃ m', m = m' + 1 := ⟨m - 1, by omega⟩
+    unfold parseMembers at h ⊢
+    split at h
+    · rename_i e hk; (try rw [hk]); exact h
+    · rename_i k p1 hk
+      (try rw [hk]); try simp only at h ⊢
+      generalize skipWs bs p1 bs.size = p at h ⊢
+      split at h
+      · rename_i hp; (try rw [hp]); exact h
+      · rename_i hp; (try rw [hp]); try simp only
+        split at h
+        · rename_i e hv
+          subst h
+          rw [parseValue_mono bs n m' (p + 1) _ (by omega) hv hnf]
+        · rename_i v p2 hv
+          rw [parseValue_mono bs n m' (p + 1) _ (by omega) hv (by intro e he; cases he)]
+          try simp only at h ⊢
+          generalize skipWs bs p2 bs.size = p3 at h ⊢
+          split at h
+          · rename_i hp3; (try rw [hp3]); exact h
+          · rename_i hp3; (try rw [hp3]); try simp only at h ⊢
+            generalize skipWs bs (p3 + 1) bs.size = q at h ⊢
+            split at h
+            · rename_i hq; (try rw [hq]); exact h
+            · rename_i hq; (try rw [hq]); exact parseMembers_mono bs n m' q _ r (by omega) h hnf
+            · rename_i hq; (try rw [hq]); exact h
+            · exact h
+          · rename_i hp3; (try rw [hp3]); exact h
+          · exact h
+      · exact h
+end
+
+/-- **Fuel monotonicity**: more fuel never changes an answer that was not a
+fuel failure. -/
+theorem parse_fuel_mono : Spec.FuelMono parseValue := by
+  intro bs pos n m hle hnf
+  exact parseValue_mono bs n m pos _ hle rfl hnf
+
 end LeanJson
