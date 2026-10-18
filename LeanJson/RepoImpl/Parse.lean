@@ -116,21 +116,23 @@ def parseNumber (bs : ByteArray) (pos : Nat) : Except ParseErr (Number × Nat) :
   let (he, ev, p3) ← parseExp bs p2
   .ok (mkNumber neg iv fv fc he ev, p3)
 
+/-- One hex digit at `i`. -/
+def hexAt (bs : ByteArray) (i : Nat) : Except ParseErr Nat :=
+  match bs[i]? with
+  | none => .error ⟨.eofWhileParsingString, i⟩
+  | some b =>
+    match hexVal b with
+    | some v => .ok v
+    | none => .error ⟨.invalidEscape, i⟩
+
 /-- Four hex digits at `pos`. -/
 def parseHex4 (bs : ByteArray) (pos : Nat) : Except ParseErr Nat :=
-  let get (i : Nat) : Except ParseErr Nat :=
-    match bs[pos + i]? with
-    | none => .error ⟨.eofWhileParsingString, pos + i⟩
-    | some b =>
-      match hexVal b with
-      | some v => .ok v
-      | none => .error ⟨.invalidEscape, pos + i⟩
-  do
-    let a ← get 0
-    let b ← get 1
-    let c ← get 2
-    let d ← get 3
-    .ok (a * 4096 + b * 256 + c * 16 + d)
+  match hexAt bs pos, hexAt bs (pos + 1), hexAt bs (pos + 2), hexAt bs (pos + 3) with
+  | .ok a, .ok b, .ok c, .ok d => .ok (a * 4096 + b * 256 + c * 16 + d)
+  | .error e, _, _, _ => .error e
+  | .ok _, .error e, _, _ => .error e
+  | .ok _, .ok _, .error e, _ => .error e
+  | .ok _, .ok _, .ok _, .error e => .error e
 
 /-- The escape sequence after a backslash at `pos - 1`: the character and the
 position after the escape. -/

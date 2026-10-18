@@ -32,7 +32,7 @@ theorem parseHex4_ext {bs : ByteArray} {p n : Nat} {R : List UInt8} (hn : n < 65
   have v3 := hexVal_hexByte ⟨n % 16, by omega⟩
   simp only at v0 v1 v2 v3
   unfold parseHex4
-  simp only [Nat.add_zero, g0, g1, g2, g3, v0, v1, v2, v3, bind, Except.bind]
+  simp only [hexAt, g0, g1, g2, g3, v0, v1, v2, v3]
   congr 1; omega
 
 theorem decode_ext {bs : ByteArray} {pos : Nat} {c : Char} {R : List UInt8}
