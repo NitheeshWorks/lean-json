@@ -94,6 +94,29 @@ def to_json {α : Type} [IntoJson α] (value : α) (indent : Option Nat := none)
     {b : ByteArray // Printed { indent, ensureAscii := ensure_ascii } (intoJson value) b} :=
   print (intoJson value) { indent, ensureAscii := ensure_ascii }
 
+theorem parse_val {bs : ByteArray} {v : Json} (h : parseDocument bs = .ok v) :
+    (parse bs).map (·.val) = .ok v := by
+  unfold parse
+  split
+  · rename_i w hw; rw [h] at hw; cases hw; rfl
+  · rename_i e he; rw [h] at he; cases he
+
+/-- **`from_json (to_json j) = j`**, under every `indent` and `ensure_ascii`,
+for every value whose integers fit jiter's 4300-byte limit. -/
+theorem from_json_to_json (j : Json) (indent : Option Nat := none) (ensure_ascii : Bool := false)
+    (h : Fits {} j) : (from_json (to_json j indent ensure_ascii).val).map (·.val) = .ok j :=
+  parse_val ((to_json j indent ensure_ascii).property.roundTripDefault h)
+
+/-- **`to_json` is injective**, under every `indent` and `ensure_ascii`. -/
+theorem to_json_injective (indent : Option Nat := none) (ensure_ascii : Bool := false) :
+    Function.Injective (fun j : Json => (to_json j indent ensure_ascii).val) := by
+  intro a b hab
+  have ha := (to_json a indent ensure_ascii).property.bytes
+  have hb := (to_json b indent ensure_ascii).property.bytes
+  simp only at hab
+  rw [hab] at ha
+  exact print_injective _ (ha.symm.trans hb)
+
 /-- `to_json`, Lean-cased. -/
 abbrev toJson {α : Type} [IntoJson α] (value : α) (indent : Option Nat := none)
     (ensure_ascii : Bool := false) := to_json value indent ensure_ascii

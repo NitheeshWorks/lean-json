@@ -85,7 +85,7 @@ upstream = "tests/test_json.py::test_to_json"
 title = "Round trip: parse (print j) = .ok j, on any continuation, every print option"
 status = "implemented"
 realises = ["LeanJson.Codec", "LeanJson.valueCodec"]
-theorem = ["LeanJson.parse_print", "LeanJson.parseLossless_print", "LeanJson.parse_print_ext", "LeanJson.parseValue_ext", "LeanJson.Codec.decode_encode"]
+theorem = ["LeanJson.from_json_to_json", "LeanJson.to_json_injective", "LeanJson.parse_print", "LeanJson.parseLossless_print", "LeanJson.parse_print_ext", "LeanJson.parseValue_ext", "LeanJson.Codec.decode_encode"]
 test = ["tests/Props.lean::parse (print v) = v, compact"]
 
 [[requirement]]

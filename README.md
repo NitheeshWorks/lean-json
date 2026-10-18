@@ -65,7 +65,11 @@ proved about it (below). Take `.val` when you only want the value.
 Every theorem is machine-checked; CI rejects `sorry`, `partial`, and any axiom
 beyond Lean's `propext`, `Quot.sound`, `Classical.choice`.
 
-* **Round trip.** `parse_print`: for every value whose integers fit jiter's
+* **`from_json (to_json j) = j`.** `from_json_to_json`, under every `indent`
+  and `ensure_ascii`, for every value whose integers fit jiter's 4300-byte
+  limit (upstream rejects longer integer literals, so the condition is
+  necessary). `to_json_injective`: distinct values print differently.
+* **Round trip, low level.** `parse_print`: for every value whose integers fit jiter's
   4300-byte limit, under every print option (compact, indented, ASCII-only),
   `parseDocument (printWith o 0 j).toByteArray = .ok j`. Without the limit
   (`ParseCfg.lossless`) there is no side condition: `parseLossless_print`.
