@@ -260,7 +260,7 @@ theorem parseEscape_adv {bs : ByteArray} {q : Nat} {r : Char × Nat} (h : parseE
           exact ⟨by simpa [Nat.add_assoc] using a1, by simp⟩
     · rw [ite_eq_right c117] at h; cases h
 
-theorem parseStrBody_adv (bs : ByteArray) (pos : Nat) (acc : List Char) (r : List Char × Nat)
+theorem parseStrBody_adv (bs : ByteArray) (pos : Nat) (acc : String) (r : String × Nat)
     (h : parseStrBody bs pos acc = .ok r) : Adv bs pos r.2 ∧ pos < r.2 := by
   unfold parseStrBody at h
   split at h
@@ -304,13 +304,9 @@ decreasing_by
 theorem parseString_adv {bs : ByteArray} {pos : Nat} {r : String × Nat} (h : parseString bs pos = .ok r) :
     Adv bs pos r.2 ∧ pos < r.2 := by
   unfold parseString at h
-  split at h
-  · rename_i cs p he
-    cases h
-    have a := parseStrBody_adv bs _ _ _ he
-    -- the opening quote exists because the body parse read a byte at pos + 1 or beyond
-    refine ⟨⟨by have := a.2; simp at *; omega, fun _ => a.1.2 a.2⟩, by have := a.2; simp at *; omega⟩
-  · cases h
+  have a := parseStrBody_adv bs _ _ _ h
+  -- the opening quote exists because the body parse read a byte at pos + 1 or beyond
+  exact ⟨⟨by have := a.2; have := a.1.1; omega, fun _ => a.1.2 a.2⟩, by have := a.2; omega⟩
 
 /-- A literal: its first byte at `q`, the rest matched from `q + 1`. -/
 theorem litAdv {bs : ByteArray} {q p : Nat} {b : UInt8} {lit : List UInt8} (hb : bs[q]? = some b)

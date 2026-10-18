@@ -1,4 +1,5 @@
 import LeanJson.RepoImpl.Print
+import Std.Data.HashMap
 
 /-!
 # RepoImpl: the lexical productions
@@ -10,9 +11,10 @@ bs.size - pos`); nothing takes fuel.
 Behaviour follows jiter, pydantic-core's parser: whitespace is space, tab,
 LF, CR; numbers follow the RFC grammar (no leading zeros, no `+`, no bare
 `.`); a literal with a fraction or exponent is a float; strings reject raw
-control characters and decode `\uXXXX` with surrogate pairs; duplicate keys
-are kept in order. Error kinds and offsets follow jiter's `JsonErrorType`.
-`NaN` and `Infinity` are rejected (see `CONTRIBUTING.md`, deviations).
+control characters and decode `\uXXXX` with surrogate pairs. Error kinds and
+offsets follow jiter's `JsonErrorType`. `NaN`, `Infinity` and `-Infinity` are
+read when `ParseCfg.allowInfNan` holds (the default). Also here: `ParseCfg`,
+and `Fields`, an object under construction with `dict` key collapsing.
 -/
 
 namespace LeanJson
@@ -132,11 +134,67 @@ structure ParseCfg where
   /-- Read `NaN`, `Infinity` and `-Infinity` (pydantic-core's
   `allow_inf_nan`, `true` in `from_json`); `false` is strict RFC 8259. -/
   allowInfNan : Bool := true
+  /-- Collapse repeated object keys as a Python `dict` does (what `from_json`
+  returns): the last value wins and the key keeps its first position.
+  `false` keeps every member, in input order. -/
+  dedupKeys : Bool := true
   deriving DecidableEq, Repr, Inhabited
+
+/-- Add member `(k, v)` to an object under construction with Python `dict`
+semantics: a new key is appended (and its position recorded in `idx`), an
+existing key keeps its position and takes the new value. -/
+def dictInsert (acc : Array (String × Json)) (idx : Std.HashMap String Nat) (k : String) (v : Json) :
+    Array (String × Json) × Std.HashMap String Nat :=
+  match idx[k]? with
+  | some i => (acc.setIfInBounds i (k, v), idx)
+  | none => (acc.push (k, v), idx.insert k acc.size)
+
+/-- The integers `0` to `1023` as values, built once: the parser returns these
+shared objects instead of allocating a fresh value per small integer. -/
+def smallInts : Array Json := Array.ofFn (n := 1024) fun k => .num (.int k)
+
+/-- `.num n`, shared when `n` is a small non-negative integer
+(`Json.ofNumber_eq`). -/
+def Json.ofNumber (n : Number) : Json :=
+  match n with
+  | .int (.ofNat k) =>
+    match smallInts[k]? with
+    | some j => j
+    | none => .num n
+  | _ => .num n
+
+theorem Json.ofNumber_eq (n : Number) : Json.ofNumber n = .num n := by
+  unfold Json.ofNumber
+  split
+  · rename_i k
+    split
+    · rename_i j h
+      simp only [smallInts, Array.getElem?_ofFn] at h
+      split at h
+      · cases h; rfl
+      · cases h
+    · rfl
+  · rfl
+
+/-- An object under construction: its members so far, and (when keys are
+collapsed) where each key sits. -/
+abbrev Fields := Array (String × Json) × Std.HashMap String Nat
+
+/-- The empty object under construction. -/
+def Fields.empty : Fields := (#[], {})
+
+/-- Add a member, collapsing a repeated key when `dedup` holds. -/
+def Fields.add (dedup : Bool) (st : Fields) (k : String) (v : Json) : Fields :=
+  if dedup then dictInsert st.1 st.2 k v else (st.1.push (k, v), st.2)
 
 /-- The configuration with no limits. Not for untrusted input: without a depth
 limit, deeply nested input can exhaust the stack. -/
-def ParseCfg.lossless : ParseCfg := { maxIntLen := none, maxDepth := none, allowInfNan := true }
+def ParseCfg.lossless : ParseCfg :=
+  { maxIntLen := none, maxDepth := none, allowInfNan := true, dedupKeys := false }
+
+/-- `cfg` with its limits lifted, keys collapsed as in `cfg`: a parse under
+`cfg` that succeeds gives the same answer under `cfg.relax`. -/
+def ParseCfg.relax (cfg : ParseCfg) : ParseCfg := { ParseCfg.lossless with dedupKeys := cfg.dedupKeys }
 
 /-- Strict RFC 8259 numbers: no `NaN` or infinities, default limits. -/
 def ParseCfg.strict : ParseCfg := { allowInfNan := false }

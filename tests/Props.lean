@@ -94,7 +94,7 @@ def genJson : Nat → Rng → Json × Rng
         let (x, g') := genJson d g
         g := g'
         xs := x :: xs
-      (.arr xs, g)
+      (.arr xs.toArray, g)
     | _ => Id.run do
       let (len, r0) := r.nat 4
       let mut g := r0
@@ -105,14 +105,31 @@ def genJson : Nat → Rng → Json × Rng
         let (x, g3) := genJson d g2
         g := g3
         kvs := ((if kk = 0 then "k" else s), x) :: kvs
-      (.obj kvs, g)
+      (.obj kvs.toArray, g)
 
+mutual
+/-- Every object's repeated keys collapsed, `dict`-style, all the way down. -/
+def deepDedup : Json → Json
+  | .arr ⟨xs⟩ => .arr ⟨deepList xs⟩
+  | .obj ⟨kvs⟩ => .obj (Json.dedupKeys ⟨deepFields kvs⟩)
+  | j => j
+def deepList : List Json → List Json
+  | [] => []
+  | x :: xs => deepDedup x :: deepList xs
+def deepFields : List (String × Json) → List (String × Json)
+  | [] => []
+  | (k, v) :: kvs => (k, deepDedup v) :: deepFields kvs
+end
+
+/-- The default parser returns `v` with repeated keys collapsed; the parser
+that keeps them returns `v` itself. -/
 def checkRoundTrip (o : PrintOpts) (r : Rng) : Option String × Rng :=
   let (v, r) := genJson 4 r
   let b := (print v o).val
-  match parse b with
-  | .ok w => (if w.val == v then none else some s!"{v} reparsed as {w.val}", r)
-  | .error e => (some s!"{v}: {e.description}", r)
+  match parse b, parseWith { dedupKeys := false } b with
+  | .ok w, .ok u =>
+    (if w.val == deepDedup v && u.val == v then none else some s!"{v} reparsed as {w.val} / {u.val}", r)
+  | .error e, _ | _, .error e => (some s!"{v}: {e.description}", r)
 
 def finiteFloat (r : Rng) : Float × Rng :=
   let (bits, r) := r.next
@@ -125,7 +142,7 @@ def checkModes (r : Rng) : Option String × Rng :=
   let b := (print v { infNan := m }).val
   match parseWith .strict b with
   | .ok w =>
-    (if v.allFinite && !(w.val == v) then some s!"{v} reparsed as {w.val}" else none, r)
+    (if v.allFinite && !(w.val == deepDedup v) then some s!"{v} reparsed as {w.val}" else none, r)
   | .error e => (some s!"{v}: {e.description}", r)
 
 def properties : List Property := [
@@ -133,11 +150,20 @@ def properties : List Property := [
   ⟨"strict parse of constants output: accepted iff the value is finite", fun r =>
     let (v, r) := genJson 4 r
     match parseWith .strict (print v).val with
-    | .ok w => (if v.allFinite && w.val == v then none else some s!"{v}", r)
+    | .ok w => (if v.allFinite && w.val == deepDedup v then none else some s!"{v}", r)
     | .error _ => (if v.allFinite then some s!"{v} rejected" else none, r)⟩,
   ⟨"parse (print v) = v, compact", checkRoundTrip {}⟩,
   ⟨"parse (print v) = v, indent 2", checkRoundTrip { indent := some 2 }⟩,
   ⟨"parse (print v) = v, ensure_ascii", checkRoundTrip { ensureAscii := true }⟩,
+  ⟨"parse (print v) = v, json.dumps separators", checkRoundTrip { spaced := true }⟩,
+  ⟨"indexing: v[k]? is the last member named k, v[i]? the i-th element", fun r =>
+    let (v, r) := genJson 3 r
+    let (i, r) := r.nat 5
+    let ok := match v with
+      | .obj kvs => kvs.all fun kv => v[kv.1]? == Json.lookupLast kv.1 kvs.toList
+      | .arr xs => v[i]? == xs[i]? && v[xs.size]? == none
+      | _ => v["k"]? == none && v[0]? == none
+    (if ok then none else some s!"{v}", r)⟩,
   ⟨"ensure_ascii output is ASCII", fun r =>
     let (v, r) := genJson 4 r
     let b := (print v { ensureAscii := true }).val
@@ -151,7 +177,7 @@ def properties : List Property := [
     let pa := (print a).val
     let buf := pa ++ " ".toUTF8 ++ (print b).val
     match parseAt buf 0 with
-    | .ok x => (if x.val == (a, pa.size) then none else some s!"{a} then {b}", r)
+    | .ok x => (if x.val == (deepDedup a, pa.size) then none else some s!"{a} then {b}", r)
     | .error e => (some e.description, r)⟩,
   ⟨"Float -> Number -> Float: identity on bits, NaN to NaN", fun r =>
     let (bits, r) := r.next
@@ -174,12 +200,13 @@ def properties : List Property := [
     let (v, r) := genJson 3 r
     match v with
     | .obj kvs =>
-      let dd := Json.dedupKeys kvs
+      let dd := (Json.dedupKeys kvs).toList
       let keys := dd.map (·.1)
       let distinct := keys.eraseDups.length == keys.length
-      let same := kvs.all fun kv => Json.lookupLast kv.1 dd == Json.lookupLast kv.1 kvs
-      let order := keys == (kvs.map (·.1)).eraseDups
-      (if distinct && same && order then none else some s!"{v}", r)
+      let same := kvs.all fun kv => Json.lookupLast kv.1 dd == Json.lookupLast kv.1 kvs.toList
+      let order := keys == (kvs.toList.map (·.1)).eraseDups
+      let list := dd == Json.dedupKeysList kvs.toList
+      (if distinct && same && order && list then none else some s!"{v}", r)
     | _ => (none, r)⟩,
   ⟨"random bytes: errors in bounds, results within the depth limit", fun r => Id.run do
     let (len, r0) := r.nat 24

@@ -59,6 +59,7 @@ def strictErr (name input want : String) : Case :=
 def rep (c : Char) (n : Nat) : String := String.ofList (List.replicate n c)
 
 def probe := "from_json (2.50.1)"
+def pyjson := "Python json.dumps (CPython 3.13.9)"
 
 def cases : List Case := [
   -- tests/test_json.py
@@ -75,12 +76,17 @@ def cases : List Case := [
   ⟨"tests/test_json.py::test_input_types", "bytes input", expect (outcomeBytes "[1, 2, 3]".toUTF8) "[1,2,3]"⟩,
   ⟨"tests/test_json.py::test_dict", "duplicate keys: last value wins",
     expect (match from_json "{\"1\": 1, \"1\": 2}" with
-      | .ok v => toString (v.val.getObjVal? "1") ++ " " ++ printStr (.obj (Json.dedupKeys (v.val.getObj?.getD [])))
+      | .ok v => toString v.val["1"]? ++ " " ++ printStr v.val
       | .error e => e.description) "(some 2) {\"1\":2}"⟩,
   ⟨"tests/test_json.py::test_typed_dict", "duplicate field: last wins, position kept",
-    expect (match from_json "{\"field_a\": \"a\", \"field_a\": \"b\", \"field_b\": 1}" with
-      | .ok v => printStr (.obj (Json.dedupKeys (v.val.getObj?.getD [])))
-      | .error e => e.description) "{\"field_a\":\"b\",\"field_b\":1}"⟩,
+    expect (outcome "{\"field_a\": \"a\", \"field_a\": \"b\", \"field_b\": 1}")
+      "{\"field_a\":\"b\",\"field_b\":1}"⟩,
+  ok probe "duplicate keys collapse at every depth" "{\"a\":1,\"b\":2,\"a\":{\"c\":3,\"c\":4}}"
+    "{\"a\":{\"c\":4},\"b\":2}",
+  ⟨"tests/test_json.py::test_dict", "dedupKeys := false keeps every member; Json.dedupKeys collapses them",
+    expect (match parseWith { dedupKeys := false } "{\"1\": 1, \"2\": 3, \"1\": 2}".toUTF8 with
+      | .ok v => printStr v.val ++ " " ++ printStr (.obj (Json.dedupKeys (v.val.getObj?.getD #[])))
+      | .error e => e.description) "{\"1\":1,\"2\":3,\"1\":2} {\"1\":2,\"2\":3}"⟩,
   ok "tests/test_json.py::test_dict_any_value" "mixed values" "{\"1\": 1, \"2\": \"a\", \"3\": null}"
     "{\"1\":1,\"2\":\"a\",\"3\":null}",
   ⟨"tests/test_json.py::test_to_json", "to_json([1, 2])", expect (toJsonStr [1, 2]) "[1,2]"⟩,
@@ -233,7 +239,32 @@ def cases : List Case := [
   err probe "spaced nesting" (String.join (List.replicate 202 " [") ++ rep ']' 202)
     "recursion limit exceeded at line 1 column 404",
   err probe "deep element after commas" (String.join (List.replicate 201 "[1,") ++ "2" ++ rep ']' 201)
-    "recursion limit exceeded at line 1 column 602"
+    "recursion limit exceeded at line 1 column 602",
+  -- indexing, as `from_json(...)["user"]["tags"][1]` on the returned dict and list
+  ⟨probe, "data[\"user\"][\"tags\"][1], data[\"n\"]",
+    expect (match from_json "{\"user\": {\"tags\": [\"x\", \"y\"]}, \"n\": 1}" with
+      | .ok d => s!"{d.val["user"]?["tags"]?[1]?} {d.val["n"]?}"
+      | .error e => e.description) "(some \"y\") (some 1)"⟩,
+  ⟨probe, "missing key and index are none",
+    expect (match from_json "{\"a\": [1]}" with
+      | .ok d => s!"{d.val["b"]?} {d.val["a"]?[1]?} {d.val[0]?}"
+      | .error e => e.description) "none none none"⟩,
+  -- Python's json.dumps (CPython 3.13.9): ", " and ": " on one line, "," and ": " with indent
+  ⟨pyjson, "dumps([1, 2, 3])", expect (dumps [1, 2, 3]) "[1, 2, 3]"⟩,
+  ⟨pyjson, "dumps({'a': 1, 'b': [True, None]})",
+    expect (dumps (json% {"a": 1, "b": [true, null]})) "{\"a\": 1, \"b\": [true, null]}"⟩,
+  ⟨pyjson, "dumps({'a': 'é'}) escapes by default", expect (dumps (json% {"a": "é"})) "{\"a\": \"\\u00e9\"}"⟩,
+  ⟨pyjson, "dumps({'a': 'é'}, ensure_ascii=False)",
+    expect (dumps (json% {"a": "é"}) (ensure_ascii := false)) "{\"a\": \"é\"}"⟩,
+  ⟨pyjson, "dumps(..., indent=2)", expect (dumps (json% {"a": [1, {"b": 2}]}) (indent := some 2))
+    "{\n  \"a\": [\n    1,\n    {\n      \"b\": 2\n    }\n  ]\n}"⟩,
+  ⟨pyjson, "dumps of empty containers", expect (dumps (json% [[], {}, [[]]])) "[[], {}, [[]]]"⟩,
+  ⟨pyjson, "dumps(..., indent=0)", expect (dumps (json% {"a": [1, 2]}) (indent := some 0))
+    "{\n\"a\": [\n1,\n2\n]\n}"⟩,
+  ⟨pyjson, "dumps(json.loads(...)) collapses repeated keys",
+    expect (match from_json "{\"a\":1,\"b\":2,\"a\":{\"c\":3,\"c\":4}}" with
+      | .ok v => dumps v.val
+      | .error e => e.description) "{\"a\": {\"c\": 4}, \"b\": 2}"⟩
 ]
 
 def main : IO UInt32 := do

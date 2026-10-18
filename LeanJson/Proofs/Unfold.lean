@@ -19,13 +19,13 @@ def parseValueAtD (cfg : ParseCfg) (bs : ByteArray) (depth pos : Nat) : Except P
 /-- The element loop, progress forgotten. The guard `start ≤ pos` holds at
 every call the parser makes; it lets the equations below name the loop
 without a proof argument. -/
-def parseElemsAt (cfg : ParseCfg) (bs : ByteArray) (depth start pos : Nat) (acc : List Json) :
+def parseElemsAt (cfg : ParseCfg) (bs : ByteArray) (depth start pos : Nat) (acc : Array Json) :
     Except ParseErr (Json × Nat) :=
   if h : start ≤ pos then (parseElems cfg bs depth start pos h acc).map Step.out
   else .error ⟨.expectedSomeValue, pos⟩
 
 def parseMembersAt (cfg : ParseCfg) (bs : ByteArray) (depth start pos : Nat)
-    (acc : List (String × Json)) : Except ParseErr (Json × Nat) :=
+    (acc : Fields) : Except ParseErr (Json × Nat) :=
   if h : start ≤ pos then (parseMembers cfg bs depth start pos h acc).map Step.out
   else .error ⟨.expectedSomeValue, pos⟩
 
@@ -83,14 +83,14 @@ theorem parseValueAtD_eq (cfg : ParseCfg) (bs : ByteArray) (depth pos : Nat) :
           match bs[skipWs bs (skipWs bs pos + 1)]? with
           | none => .error ⟨.eofWhileParsingList, skipWs bs (skipWs bs pos + 1)⟩
           | some c =>
-            if c == 93 then .ok (.arr [], skipWs bs (skipWs bs pos + 1) + 1)
-            else parseElemsAt cfg bs (depth + 1) pos (skipWs bs (skipWs bs pos + 1)) []
+            if c == 93 then .ok (.arr #[], skipWs bs (skipWs bs pos + 1) + 1)
+            else parseElemsAt cfg bs (depth + 1) pos (skipWs bs (skipWs bs pos + 1)) #[]
         else if b == 123 then
           match bs[skipWs bs (skipWs bs pos + 1)]? with
           | none => .error ⟨.eofWhileParsingObject, skipWs bs (skipWs bs pos + 1)⟩
           | some c =>
-            if c == 125 then .ok (.obj [], skipWs bs (skipWs bs pos + 1) + 1)
-            else if c == 34 then parseMembersAt cfg bs (depth + 1) pos (skipWs bs (skipWs bs pos + 1)) []
+            if c == 125 then .ok (.obj #[], skipWs bs (skipWs bs pos + 1) + 1)
+            else if c == 34 then parseMembersAt cfg bs (depth + 1) pos (skipWs bs (skipWs bs pos + 1)) .empty
             else .error ⟨.keyMustBeAString, skipWs bs (skipWs bs pos + 1)⟩
         else if b == 116 then (expectLit bs (skipWs bs pos + 1) [114, 117, 101]).map (fun p => (.bool true, p))
         else if b == 102 then
@@ -114,14 +114,14 @@ theorem parseValueAtD_eq (cfg : ParseCfg) (bs : ByteArray) (depth pos : Nat) :
     · rw [ite_eq_left hd, ite_eq_left hd]; rfl
     rw [ite_eq_right hd, ite_eq_right hd]
     simp only [apply_ite (Except.map Step.out), apply_dite (Except.map Step.out), map_map_ok,
-      lift_cast_out', cast_out', lift_out, map_error, map_ok]
+      lift_cast_out', cast_out', lift_out, map_error, map_ok, Json.ofNumber_eq]
     by_cases hp : skipWs bs (skipWs bs pos + 1) < bs.size
     · simp only [dite_eq_left hp, get_of_lt hp, parseElemsAt, parseMembersAt, dite_eq_left (by omega : pos ≤ skipWs bs (skipWs bs pos + 1))]
       rfl
     · simp only [dite_eq_right hp, get_of_ge hp]
   · rw [dite_eq_right hqs, get_of_ge hqs]; rfl
 
-theorem parseElemsAt_eq (cfg : ParseCfg) (bs : ByteArray) (depth start pos : Nat) (acc : List Json)
+theorem parseElemsAt_eq (cfg : ParseCfg) (bs : ByteArray) (depth start pos : Nat) (acc : Array Json)
     (hsp : start ≤ pos) :
     parseElemsAt cfg bs depth start pos acc =
       match parseValueAtD cfg bs depth pos with
@@ -133,8 +133,8 @@ theorem parseElemsAt_eq (cfg : ParseCfg) (bs : ByteArray) (depth start pos : Nat
           if c == 44 then
             if bs[skipWs bs (skipWs bs p1 + 1)]? == some 93 then
               .error ⟨.trailingComma, skipWs bs (skipWs bs p1 + 1)⟩
-            else parseElemsAt cfg bs depth start (skipWs bs (skipWs bs p1 + 1)) (v :: acc)
-          else if c == 93 then .ok (.arr (v :: acc).reverse, skipWs bs p1 + 1)
+            else parseElemsAt cfg bs depth start (skipWs bs (skipWs bs p1 + 1)) (acc.push v)
+          else if c == 93 then .ok (.arr (acc.push v), skipWs bs p1 + 1)
           else .error ⟨.expectedListCommaOrEnd, skipWs bs p1⟩ := by
   unfold parseElemsAt
   rw [dite_eq_left hsp, parseElems]
@@ -154,7 +154,7 @@ theorem parseElemsAt_eq (cfg : ParseCfg) (bs : ByteArray) (depth start pos : Nat
     · rw [dite_eq_right hp, get_of_ge hp]; rfl
 
 theorem parseMembersAt_eq (cfg : ParseCfg) (bs : ByteArray) (depth start pos : Nat)
-    (acc : List (String × Json)) (hsp : start ≤ pos) :
+    (acc : Fields) (hsp : start ≤ pos) :
     parseMembersAt cfg bs depth start pos acc =
       match parseString bs pos with
       | .error e => .error e
@@ -174,10 +174,10 @@ theorem parseMembersAt_eq (cfg : ParseCfg) (bs : ByteArray) (depth start pos : N
                   | none => .error ⟨.eofWhileParsingValue, skipWs bs (skipWs bs p2 + 1)⟩
                   | some e =>
                     if e == 34 then
-                      parseMembersAt cfg bs depth start (skipWs bs (skipWs bs p2 + 1)) ((k, v) :: acc)
+                      parseMembersAt cfg bs depth start (skipWs bs (skipWs bs p2 + 1)) (acc.add cfg.dedupKeys k v)
                     else if e == 125 then .error ⟨.trailingComma, skipWs bs (skipWs bs p2 + 1)⟩
                     else .error ⟨.keyMustBeAString, skipWs bs (skipWs bs p2 + 1)⟩
-                else if d == 125 then .ok (.obj ((k, v) :: acc).reverse, skipWs bs p2 + 1)
+                else if d == 125 then .ok (.obj (acc.add cfg.dedupKeys k v).1, skipWs bs p2 + 1)
                 else .error ⟨.expectedObjectCommaOrEnd, skipWs bs p2⟩
           else .error ⟨.expectedColon, skipWs bs p1⟩ := by
   unfold parseMembersAt

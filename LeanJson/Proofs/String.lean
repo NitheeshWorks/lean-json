@@ -103,18 +103,18 @@ theorem parseEscape_u (bs : ByteArray) (pos : Nat) (c : Char) (R : List UInt8)
   rw [← char_eq_ofNat c _ rfl]
 
 /-- One step of the string body at a byte that exists. -/
-theorem strBody_at {bs : ByteArray} {pos : Nat} {acc : List Char} {b : UInt8} (hb : bs[pos]? = some b) :
+theorem strBody_at {bs : ByteArray} {pos : Nat} {acc : String} {b : UInt8} (hb : bs[pos]? = some b) :
     parseStrBody bs pos acc =
-      if b == 34 then .ok (acc.reverse, pos + 1)
+      if b == 34 then .ok (acc, pos + 1)
       else if b == 92 then
         match parseEscape bs (pos + 1) with
-        | .ok (c, p) => parseStrBody bs p (c :: acc)
+        | .ok (c, p) => parseStrBody bs p (acc.push c)
         | .error e => .error e
       else if b < 32 then .error ⟨.controlCharacterWhileParsingString, pos⟩
-      else if b < 128 then parseStrBody bs (pos + 1) (Char.ofNat b.toNat :: acc)
+      else if b < 128 then parseStrBody bs (pos + 1) (acc.push (Char.ofNat b.toNat))
       else
         match bs.utf8DecodeChar? pos with
-        | some c => parseStrBody bs (pos + c.utf8Size) (c :: acc)
+        | some c => parseStrBody bs (pos + c.utf8Size) (acc.push c)
         | none => .error ⟨.invalidUnicodeCodePoint, pos + 1⟩ := by
   have hlt := lt_size_of_get hb
   rw [parseStrBody, dite_eq_left hlt]
@@ -127,14 +127,14 @@ theorem strBody_at {bs : ByteArray} {pos : Nat} {acc : List Char} {b : UInt8} (h
     · simp only [h1, h2, Bool.false_eq_true, ↓reduceIte]
       rfl
 
-theorem step_backslash {bs : ByteArray} {pos : Nat} {acc : List Char} {c : Char} {p : Nat}
+theorem step_backslash {bs : ByteArray} {pos : Nat} {acc : String} {c : Char} {p : Nat}
     (hb : bs[pos]? = some 92) (he : parseEscape bs (pos + 1) = .ok (c, p)) :
-    parseStrBody bs pos acc = parseStrBody bs p (c :: acc) := by
+    parseStrBody bs pos acc = parseStrBody bs p (acc.push c) := by
   rw [strBody_at hb]; simp [he]
 
-theorem step_ascii {bs : ByteArray} {pos : Nat} {acc : List Char} {b : UInt8}
+theorem step_ascii {bs : ByteArray} {pos : Nat} {acc : String} {b : UInt8}
     (hb : bs[pos]? = some b) (h1 : b ≠ 34) (h2 : b ≠ 92) (h3 : 32 ≤ b.toNat) (h4 : b.toNat < 128) :
-    parseStrBody bs pos acc = parseStrBody bs (pos + 1) (Char.ofNat b.toNat :: acc) := by
+    parseStrBody bs pos acc = parseStrBody bs (pos + 1) (acc.push (Char.ofNat b.toNat)) := by
   rw [strBody_at hb]
   have e1 : (b == 34) = false := by simpa using h1
   have e2 : (b == 92) = false := by simpa using h2
@@ -142,9 +142,9 @@ theorem step_ascii {bs : ByteArray} {pos : Nat} {acc : List Char} {b : UInt8}
   have e4 : b < 128 := by rw [UInt8.lt_iff_toNat_lt]; simpa using h4
   simp [e1, e2, e3, e4]
 
-theorem step_high {bs : ByteArray} {pos : Nat} {acc : List Char} {b : UInt8} {c : Char}
+theorem step_high {bs : ByteArray} {pos : Nat} {acc : String} {b : UInt8} {c : Char}
     (hb : bs[pos]? = some b) (h3 : 128 ≤ b.toNat) (hd : bs.utf8DecodeChar? pos = some c) :
-    parseStrBody bs pos acc = parseStrBody bs (pos + c.utf8Size) (c :: acc) := by
+    parseStrBody bs pos acc = parseStrBody bs (pos + c.utf8Size) (acc.push c) := by
   rw [strBody_at hb]
   have e1 : (b == 34) = false := by
     apply beq_false_of_ne; intro e; subst e; simp at h3
@@ -221,9 +221,9 @@ theorem parseEscape_pair (bs : ByteArray) (pos : Nat) (c : Char) (R : List UInt8
 
 /-- One escaped character is consumed exactly and decodes to itself. -/
 theorem strStep (ascii : Bool) (c : Char) {bs : ByteArray} {pos : Nat} {R : List UInt8}
-    (acc : List Char) (h : At bs pos (escapeChar ascii c) R) :
+    (acc : String) (h : At bs pos (escapeChar ascii c) R) :
     parseStrBody bs pos acc =
-      parseStrBody bs (pos + (escapeChar ascii c).length) (c :: acc) := by
+      parseStrBody bs (pos + (escapeChar ascii c).length) (acc.push c) := by
   have hv := toNat_valid c
   have hc : c = Char.ofNat c.toNat := (Char.ofNat_toNat c).symm
   by_cases h34 : c.toNat = 34
@@ -307,17 +307,17 @@ theorem flatMap_escape_length (ascii : Bool) (cs : List Char) :
     omega
 
 theorem parseStrBody_ext (ascii : Bool) {bs : ByteArray} {R : List UInt8} :
-    ∀ (cs : List Char) (acc : List Char) (pos : Nat),
+    ∀ (cs : List Char) (acc : String) (pos : Nat),
       At bs pos (cs.flatMap (escapeChar ascii) ++ [34]) R →
-      parseStrBody bs pos acc = .ok (acc.reverse ++ cs, pos + (cs.flatMap (escapeChar ascii)).length + 1)
+      parseStrBody bs pos acc = .ok (String.ofList (acc.toList ++ cs), pos + (cs.flatMap (escapeChar ascii)).length + 1)
   | [], acc, pos, h => by
     simp only [List.flatMap_nil, List.nil_append] at h
     rw [strBody_at h.get]; simp
   | c :: cs, acc, pos, h => by
     simp only [List.flatMap_cons, List.append_assoc] at h
     rw [strStep ascii c acc h.assoc]
-    rw [parseStrBody_ext ascii cs (c :: acc) _ h.app]
-    simp only [List.reverse_cons, List.append_assoc, List.cons_append, List.nil_append,
+    rw [parseStrBody_ext ascii cs (acc.push c) _ h.app]
+    simp only [String.toList_push, List.append_assoc, List.cons_append, List.nil_append,
       List.flatMap_cons, List.length_append]
     congr 2; omega
 
@@ -330,8 +330,8 @@ theorem parseString_printString_ext (ascii : Bool) (s : String) {bs : ByteArray}
   unfold printString at h hsz ⊢
   have hl := flatMap_escape_length ascii s.toList
   simp only [List.length_cons, List.length_append, List.length_nil] at hsz
-  rw [parseStrBody_ext ascii s.toList [] (pos + 1) (by simpa [List.append_assoc] using h.next)]
-  simp only [List.reverse_nil, List.nil_append, String.ofList_toList, List.length_cons,
+  rw [parseStrBody_ext ascii s.toList "" (pos + 1) (by simpa [List.append_assoc] using h.next)]
+  simp only [String.toList_empty, List.nil_append, String.ofList_toList, List.length_cons,
     List.length_append, List.length_nil]
   congr 2; omega
 

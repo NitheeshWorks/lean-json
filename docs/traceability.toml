@@ -136,11 +136,38 @@ test = ["tests/Props.lean::Float -> shortest decimal -> Float is the identity on
 [[requirement]]
 id = "keys.duplicates"
 upstream = "tests/test_json.py::test_dict"
-title = "Duplicate object keys are kept in order; lookup is last-wins; dedupKeys gives Python dict semantics"
+title = "Duplicate object keys collapse as from_json's dict does (last value, first position), while parsing; ParseCfg.dedupKeys := false keeps them; lookup is last-wins"
+status = "implemented"
+realises = ["LeanJson.Fields.add", "LeanJson.dictInsert", "LeanJson.ParseCfg", "LeanJson.Json.getObjVal?", "LeanJson.Json.lookupLast", "LeanJson.Json.dedupKeys"]
+theorem = ["LeanJson.Fields.add_fresh", "LeanJson.Fields.mem_add", "LeanJson.parseMembers_ext", "LeanJson.fits_default", "LeanJson.parse_canonical"]
+test = ["tests/Conformance.lean::duplicate keys: last value wins", "tests/Conformance.lean::duplicate keys collapse at every depth", "tests/Conformance.lean::dedupKeys := false keeps every member; Json.dedupKeys collapses them", "tests/Props.lean::dedupKeys keeps last values, distinct keys, first positions", "tests/Props.lean::parse (print v) = v, compact"]
+
+[[requirement]]
+id = "print.dumps"
+upstream = "Python json.dumps (CPython 3.13.9): separators default to (', ', ': '), or (',', ': ') with indent"
+title = "json.dumps-style separators (PrintOpts.spaced) and dumps with its defaults"
+status = "implemented"
+realises = ["LeanJson.dumps", "LeanJson.PrintOpts.sep", "LeanJson.PrintOpts.colon"]
+theorem = ["LeanJson.parse_print", "LeanJson.parseLossless_print", "LeanJson.wsList_sep"]
+test = ["tests/Conformance.lean::dumps([1, 2, 3])", "tests/Conformance.lean::dumps(..., indent=2)", "tests/Props.lean::parse (print v) = v, json.dumps separators"]
+
+[[requirement]]
+id = "access.index"
+upstream = "Python dict/list indexing on from_json's result: data['name'], data[0]"
+title = "data[\"name\"]? and data[i]? via GetElem? on Json and Option Json"
 status = "tested"
-realises = ["LeanJson.Json.getObjVal?", "LeanJson.Json.lookupLast", "LeanJson.Json.dedupKeys"]
+realises = ["LeanJson.Json.getObjVal?", "LeanJson.Json.getArrVal?"]
 theorem = []
-test = ["tests/Conformance.lean::duplicate keys: last value wins", "tests/Props.lean::dedupKeys keeps last values, distinct keys, first positions"]
+test = ["tests/Conformance.lean::missing key and index are none", "tests/Props.lean::indexing: v[k]? is the last member named k, v[i]? the i-th element"]
+
+[[requirement]]
+id = "perf.memory"
+upstream = "pydantic-core 2.50.1 from_json peak memory: 211 MB for a 20 MB flat array, 136 MB for a 60 MB object of repeated keys"
+title = "Compact representation (Array, shared small integers, collapsing while parsing); peak memory asserted in CI"
+status = "tested"
+realises = ["LeanJson.smallInts", "LeanJson.Json.ofNumber", "LeanJson.Fields"]
+theorem = ["LeanJson.Json.ofNumber_eq"]
+test = ["tests/Bench.lean"]
 
 [[requirement]]
 id = "inf_nan"

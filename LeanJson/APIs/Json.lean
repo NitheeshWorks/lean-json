@@ -15,6 +15,8 @@ aliases), each returning its value together with the proved guarantees:
 | `to_json(value, indent=2)`            | `to_json value (indent := some 2)`            |
 | `to_json(value, ensure_ascii=True)`   | `to_json value (ensure_ascii := true)`        |
 | `ValueError` / `json_invalid` context | `JsonError`, `JsonError.description`          |
+| `data["name"]`, `data[0]`             | `data["name"]?`, `data[0]?` (`Option Json`)   |
+| `json.dumps(value)`                   | `dumps value` (`", "`, `": "`, ASCII)         |
 
 The refinements (`Spec.Parsed`, `Spec.Printed`, `Spec.ParsedAt`) are proved
 here from the theorems of `Proofs/`; code that wants only the value takes
@@ -36,7 +38,7 @@ theorem parsed_of_ref {cfg : ParseCfg} {bs : ByteArray} {v : Json} (h : parseDoc
     ParsedWith cfg bs v where
   ref := h
   reprint o hrb := parseLossless_print v o hrb
-  canonical _ _ hrb hw := parse_canonical h hrb hw
+  canonical _ _ hrb hk hw := parse_canonical h hrb hk hw
   height _ hL := parse_height hL h
   finite hs := parse_finite hs h
 
@@ -71,8 +73,9 @@ theorem parsedAt_of_ref {bs : ByteArray} {pos : Nat} {r : Json × Nat}
     (h : parseValue bs pos = .ok r) : ParsedAt bs pos r where
   ref := h
   bounds := parseValueAt_progress h
-  canonical o d w rest hrb hw hr := by
-    have e1 := parse_print_ext o d w bs pos rest hrb hw hr
+  canonical o d w rest hrb hk hw hr := by
+    have e1 := (valueCodec (ParseCfg.relax {}) o d).law w _ _ rest ⟨fits_relax fun _ => hk, hrb⟩ hw hr
+    simp only [valueCodec] at e1
     rw [parseValue_relax {} bs pos r h] at e1
     cases e1; rfl
 
@@ -88,9 +91,9 @@ def parseAt (bs : ByteArray) (pos : Nat) :
 theorem printed (o : PrintOpts) (v : Json) : Printed o v (printWith o 0 v).toByteArray where
   bytes := by simp
   roundTrip hrb := parseLossless_print v o hrb
-  roundTripDefault hrb hi hd := parse_print v o (fits_default hi hd) hrb
-  roundTripStrict hi hd hf := parseDocumentWith_print .strict o v (fits_strict hi hd hf) (Or.inr hf)
-  compact ho := by simpa using print_compact o ho v
+  roundTripDefault hrb hi hk hd := parse_print v o (fits_default hi hk hd) hrb
+  roundTripStrict hi hk hd hf := parseDocumentWith_print .strict o v (fits_strict hi hk hd hf) (Or.inr hf)
+  compact ho hs := by simpa using print_compact o ho hs v
 
 /-- Print a value. The default options give the compact form. Built byte
 by byte (`printBA`, linear in the output), proved equal to the specification
@@ -120,24 +123,25 @@ theorem parse_val {cfg : ParseCfg} {bs : ByteArray} {v : Json} (h : parseDocumen
 
 /-- **`from_json (to_json j) = j`** at both functions' defaults, under every
 `indent` and `ensure_ascii`, for every value whose integers fit jiter's
-4300-byte limit and whose height is at most 200 (jiter's nesting limit).
-Both conditions are necessary: upstream rejects longer integer literals and
-deeper nesting. NaN and the infinities round-trip (`to_json` writes `NaN`,
+4300-byte limit, whose objects repeat no key, and whose height is at most 200
+(jiter's nesting limit). Each condition is necessary: upstream rejects longer
+integer literals and deeper nesting, and `from_json` returns a `dict`, which
+keeps one value per key. NaN and the infinities round-trip (`to_json` writes `NaN`,
 `from_json` reads it). -/
 theorem from_json_to_json (j : Json) (indent : Option Nat := none) (ensure_ascii : Bool := false)
-    (hint : IntsFit j) (hdepth : j.height ≤ 200) :
+    (hint : IntsFit j) (hkeys : KeysUnique j) (hdepth : j.height ≤ 200) :
     (from_json (to_json j indent ensure_ascii).val).map (·.val) = .ok j :=
-  parse_val ((to_json j indent ensure_ascii).property.roundTripDefault (Or.inl rfl) hint hdepth)
+  parse_val ((to_json j indent ensure_ascii).property.roundTripDefault (Or.inl rfl) hint hkeys hdepth)
 
 /-- **The strict round trip**: `from_json (to_json j) (allow_inf_nan := false) = j`
 under every `inf_nan_mode`, when `j` has no NaN or infinity (then the output is
 RFC 8259 JSON). -/
 theorem from_json_to_json_strict (j : Json) (indent : Option Nat := none) (ensure_ascii : Bool := false)
     (inf_nan_mode : InfNanMode := .constants)
-    (hint : IntsFit j) (hdepth : j.height ≤ 200) (hfin : j.allFinite = true) :
+    (hint : IntsFit j) (hkeys : KeysUnique j) (hdepth : j.height ≤ 200) (hfin : j.allFinite = true) :
     (from_json (to_json j indent ensure_ascii inf_nan_mode).val (allow_inf_nan := false)).map (·.val)
       = .ok j :=
-  parse_val ((to_json j indent ensure_ascii inf_nan_mode).property.roundTripStrict hint hdepth hfin)
+  parse_val ((to_json j indent ensure_ascii inf_nan_mode).property.roundTripStrict hint hkeys hdepth hfin)
 
 /-- **`to_json` is injective**, under every `indent` and `ensure_ascii` (and the
 default `inf_nan_mode`; `null` and `strings` modes print `NaN` as `null` or
@@ -159,5 +163,12 @@ abbrev toJson {α : Type} [IntoJson α] (value : α) (indent : Option Nat := non
 /-- The printed form as a `String` (the bytes are always valid UTF-8). -/
 def printStr (v : Json) (o : PrintOpts := {}) : String :=
   (String.fromUTF8? (print v o).val).getD ""
+
+/-- Python's `json.dumps(obj, indent=None, ensure_ascii=True)`: `", "` and
+`": "` separators on one line, `","` and `": "` with `indent`, non-ASCII
+escaped by default. (`to_json` is the compact pydantic-core form.) -/
+def dumps {α : Type} [IntoJson α] (obj : α) (indent : Option Nat := none) (ensure_ascii : Bool := true) :
+    String :=
+  printStr (intoJson obj) { indent, ensureAscii := ensure_ascii, spaced := true }
 
 end LeanJson

@@ -89,9 +89,14 @@ Listed here with the reason, and in `docs/traceability.toml` with
   `Float.ofScientific`, which core does not provide. Tested on random bit
   patterns: `toFloat (ofFloat? x) = x` bit for bit, and the printed form
   re-parses to the same bits (`tests/Props.lean`).
-* **Duplicate-key helpers** (`Json.lookupLast`, `Json.dedupKeys`): simple list
-  functions; tested for Python `dict` semantics (last value, first position,
-  distinct keys).
+* **Duplicate-key helpers** (`Json.lookupLast`, `Json.dedupKeys`): tested for
+  Python `dict` semantics (last value, first position, distinct keys), and
+  for agreement with the parser's own collapsing (`tests/Props.lean`). What is
+  proved about the parser's collapsing is the round trip on values with
+  distinct keys (`Fields.add_fresh`) and that it returns only members it read
+  (`Fields.mem_add`), not that it equals `dedupKeys` of the uncollapsed parse.
+* **Peak memory and time**: `tests/Bench.lean`, asserted in CI (the parse adds
+  at most 8 × the input + 32 MB).
 * **Error kinds and offsets** for malformed input: the proofs cover what valid
   input does; what each malformed input reports is pinned against the
   released pydantic-core 2.50.1 in `tests/Conformance.lean` (`from_json
@@ -110,9 +115,9 @@ library's own inductive, with `Json.toLean` / `Json.ofLean` bridges:
 
 * `Lean.Json.obj` holds a `Std.TreeMap.Raw String Json`: keys sorted, one
   value per key. pydantic-core's parser (jiter) keeps members in document
-  order and keeps duplicate keys (lookup is last-wins). A round trip
-  `parse (print v) = v` against `Lean.Json` would hold only up to key order
-  and duplicates, and `print_injective` would be false.
+  order (and can keep duplicate keys). A round trip `parse (print v) = v`
+  against `Lean.Json` would hold only up to key order, and `print_injective`
+  would be false.
 * `Lean.JsonNumber` is `mantissa * 10^-exponent` with `exponent : Nat`: it
   cannot tell the integer `1` from the float `1e0`, and has no `-0.0`.
   pydantic-core distinguishes int from float literals (`int_from_float`
@@ -120,16 +125,41 @@ library's own inductive, with `Json.toLean` / `Json.ofLean` bridges:
 * Core's parser, `compress` and `render` are `partial def`, so nothing about
   them is provable.
 
-So: `Json.obj : List (String × Json)` (order and duplicates kept, as jiter),
-`Json.arr : List Json`, and `Number := int Int | float Decimal`, where
-`Decimal` is an exact normalised decimal with a sign bit (invariant
-`h_norm` is a field). `Json.getObjVal?` is last-wins and `Json.dedupKeys`
-gives Python `dict` semantics (first position, last value).
+So: `Json.obj : Array (String × Json)` (document order),
+`Json.arr : Array Json`, and `Number := int Int | float Decimal | nan | inf
+| negInf`, where `Decimal` is an exact normalised decimal with a sign bit
+(invariant `h_norm` is a field). `Json.getObjVal?` is last-wins and
+`Json.dedupKeys` gives Python `dict` semantics (first position, last value).
+
+### Compact representation
+
+`Array` rather than `List` for containers (one pointer per element, filled by
+`push` with no final reverse); the proofs match `.arr ⟨x :: xs⟩` and state the
+element and member loops over `acc.toList ++ rest`, so the headline
+statements are unchanged. Strings accumulate with `String.push`. The parser
+returns integers 0 to 1023 from a shared table (`smallInts`, through
+`Json.ofNumber`, with `Json.ofNumber_eq : Json.ofNumber n = .num n`, so the
+proofs see `.num`). An object under construction is a `Fields` (the members
+and, when collapsing, a `Std.HashMap` from key to position), dropped when the
+object closes.
 
 ## Decisions following upstream
 
-* **Duplicate keys** are kept by the parser, in order, exactly as jiter's
-  `JsonValue`; lookup is last-wins (`tests/test_json.py::test_dict`).
+* **Duplicate keys** collapse as they do in the `dict` that `from_json`
+  returns: the last value wins, at the key's first position
+  (`tests/test_json.py::test_dict`). `ParseCfg.dedupKeys` (default `true`)
+  does it while the object is read, so a 60 MB object of one repeated key
+  stays small; `dedupKeys := false` keeps every member in order, as jiter's
+  `JsonValue` does. With collapsing on, the round trip needs distinct keys
+  (`Spec.KeysUnique`, part of `Fits` through `FitsAt`); `ParseCfg.relax` keeps
+  the flag, so "limits only add errors" still holds.
+* **Separators.** `to_json` prints `,` and `:` (pretty: `: ` and a newline
+  after `,`). `PrintOpts.spaced` gives Python `json.dumps`'s `, ` and `: ` on
+  one line, and `dumps` is `json.dumps` with its defaults (`ensure_ascii`
+  on). `print_compact` assumes `spaced = false`.
+* **Indexing.** `GetElem?` instances on `Json` (and `Option Json`, so lookups
+  chain) for `String` keys (last-wins, `getObjVal?`) and `Nat` indices
+  (`getArrVal?`): `data["name"]?`, `data[0]?`.
 * **Big integers** are `Int` (jiter `BigInt`), up to the 4300-byte limit
   below (`tests/validators/test_int.py::test_long_json`).
 * **Floats** are kept exactly as decimals. Upstream rounds to an IEEE double

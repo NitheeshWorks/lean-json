@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The whole local gate, in the order CI runs it. The verification gate
-# (scripts/Axioms.lean) checks every declaration on the compiled environment. The verification gate
-# (scripts/Axioms.lean) checks every declaration on the compiled environment. Exits on the first failure.
+# (scripts/Axioms.lean) checks every declaration on the compiled environment.
+# Exits on the first failure.
 #
 #   scripts/check.sh            # everything
 #   scripts/check.sh --quick    # build and the verification gate (no tests)
@@ -25,6 +25,11 @@ lake exe conformance
 
 echo "== traceability =="
 python3 scripts/traceability-check.py
+
+echo "== benchmark =="
+lake exe bench flat 20
+lake exe bench keys 60
+lake exe bench strings 20
 
 if [[ "${1:-}" == "--pbt" ]]; then
   echo "== plausible =="

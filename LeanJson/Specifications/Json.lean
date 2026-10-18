@@ -27,14 +27,15 @@ def NumStop (rest : List UInt8) : Prop :=
 
 mutual
 /-- `v`, sitting inside `d` containers, is within `cfg`'s limits: every
-number's integer part fits `maxIntLen`, and every value (scalar or
-container) sits inside fewer than `maxDepth` containers. Always true for
-`ParseCfg.lossless`. -/
+number's integer part fits `maxIntLen`, every value (scalar or container)
+sits inside fewer than `maxDepth` containers, and, when `cfg` collapses
+repeated keys, no object repeats a key. Always true for `ParseCfg.lossless`. -/
 def FitsAt (cfg : ParseCfg) (d : Nat) : Json → Prop
   | .num n => cfg.depthOk d = true ∧ cfg.intLenOk n.intLen = true ∧
       (cfg.allowInfNan = true ∨ n.isFinite = true)
-  | .arr xs => cfg.depthOk d = true ∧ FitsList cfg (d + 1) xs
-  | .obj kvs => cfg.depthOk d = true ∧ FitsFields cfg (d + 1) kvs
+  | .arr ⟨xs⟩ => cfg.depthOk d = true ∧ FitsList cfg (d + 1) xs
+  | .obj ⟨kvs⟩ => cfg.depthOk d = true ∧ (cfg.dedupKeys = true → (kvs.map Prod.fst).Nodup) ∧
+      FitsFields cfg (d + 1) kvs
   | _ => cfg.depthOk d = true
 def FitsList (cfg : ParseCfg) (d : Nat) : List Json → Prop
   | [] => True
@@ -48,7 +49,11 @@ end
 def Fits (cfg : ParseCfg) (v : Json) : Prop := FitsAt cfg 0 v
 
 /-- Every integer in `j` is within jiter's 4300-byte limit (depth aside). -/
-def IntsFit (j : Json) : Prop := Fits { maxDepth := none } j
+def IntsFit (j : Json) : Prop := Fits { maxDepth := none, dedupKeys := false } j
+
+/-- No object in `j` repeats a key, so collapsing repeated keys (as
+`from_json` does) leaves `j` unchanged. -/
+def KeysUnique (j : Json) : Prop := Fits { ParseCfg.lossless with dedupKeys := true } j
 
 /-- The printing of `v` under `o` can be read back as `v`: either NaN and the
 infinities print as constants (`o.infNan = .constants`, the default), or `v`
@@ -98,8 +103,8 @@ mutual
 /-- Whether a string occurring in `v` (a value or a key) contains a space. -/
 def HasSpaceInString : Json → Prop
   | .str s => ' ' ∈ s.toList
-  | .arr xs => HasSpaceInList xs
-  | .obj kvs => HasSpaceInFields kvs
+  | .arr ⟨xs⟩ => HasSpaceInList xs
+  | .obj ⟨kvs⟩ => HasSpaceInFields kvs
   | _ => False
 def HasSpaceInList : List Json → Prop
   | [] => False
@@ -126,9 +131,10 @@ structure ParsedWith (cfg : ParseCfg) (bs : ByteArray) (v : Json) : Prop where
   reprint : ∀ o : PrintOpts, ReadsBack o v →
     parseDocumentWith .lossless (printWith o 0 v).toByteArray = .ok v
   /-- If the input is the printing of some value `w` (under options that read
-  back), then `w` is what was read: canonical input re-prints to exactly the
-  input. -/
-  canonical : ∀ (o : PrintOpts) (w : Json), ReadsBack o w → printWith o 0 w = bs.data.toList → w = v
+  back, and with no repeated key if `cfg` collapses them), then `w` is what
+  was read: canonical input re-prints to exactly the input. -/
+  canonical : ∀ (o : PrintOpts) (w : Json), ReadsBack o w → (cfg.dedupKeys = true → KeysUnique w) →
+    printWith o 0 w = bs.data.toList → w = v
   /-- Nothing nested deeper than the configured limit is returned. -/
   height : ∀ L, cfg.maxDepth = some L → v.height < L
   /-- In strict mode, no `NaN` or infinity is returned. -/
@@ -144,10 +150,10 @@ structure ParsedAt (bs : ByteArray) (pos : Nat) (r : Json × Nat) : Prop where
   ref : parseValue bs pos = .ok r
   /-- At least one byte was consumed, and no byte past the end. -/
   bounds : pos < r.2 ∧ r.2 ≤ bs.size
-  /-- If the bytes from `pos` are the printing of some `w` (any options and
-  depth) followed by a continuation that cannot extend a number, the result
-  is `w` and the end position is just past its printing. -/
-  canonical : ∀ (o : PrintOpts) (d : Nat) (w : Json) (rest : List UInt8), ReadsBack o w →
+  /-- If the bytes from `pos` are the printing of some `w` with no repeated key
+  (any options and depth) followed by a continuation that cannot extend a
+  number, the result is `w` and the end position is just past its printing. -/
+  canonical : ∀ (o : PrintOpts) (d : Nat) (w : Json) (rest : List UInt8), ReadsBack o w → KeysUnique w →
     At bs pos (printWith o d w) rest → NumStop rest → r = (w, pos + (printWith o d w).length)
 
 /-- What `LeanJson.to_json` guarantees about its output `b` for `v` under `o`. -/
@@ -157,16 +163,17 @@ structure Printed (o : PrintOpts) (v : Json) (b : ByteArray) : Prop where
   /-- The lossless parser reads `b` back as `v`. -/
   roundTrip : ReadsBack o v → parseDocumentWith .lossless b = .ok v
   /-- So does the default (`from_json`) parser, when every integer in `v` is
-  within its 4300-byte limit and `v` is nested no deeper than its 201-level
-  limit allows. -/
-  roundTripDefault : ReadsBack o v → IntsFit v → v.height ≤ 200 → parseDocument b = .ok v
+  within its 4300-byte limit, no object repeats a key (`from_json` collapses
+  them), and `v` is nested no deeper than its 201-level limit allows. -/
+  roundTripDefault : ReadsBack o v → IntsFit v → KeysUnique v → v.height ≤ 200 →
+    parseDocument b = .ok v
   /-- And the strict (`allow_inf_nan=False`) parser, when moreover `v` has no
   `NaN` or infinity: `b` is then RFC 8259 JSON. -/
-  roundTripStrict : IntsFit v → v.height ≤ 200 → v.allFinite = true →
+  roundTripStrict : IntsFit v → KeysUnique v → v.height ≤ 200 → v.allFinite = true →
     parseDocumentWith .strict b = .ok v
   /-- Compact options give no layout whitespace: no tab, LF or CR byte, and a
   space only inside a string that has one. -/
-  compact : o.indent = none → (9 : UInt8) ∉ b.data.toList ∧ (10 : UInt8) ∉ b.data.toList ∧
+  compact : o.indent = none → o.spaced = false → (9 : UInt8) ∉ b.data.toList ∧ (10 : UInt8) ∉ b.data.toList ∧
     (13 : UInt8) ∉ b.data.toList ∧ ((32 : UInt8) ∈ b.data.toList → HasSpaceInString v)
 
 end LeanJson.Spec

@@ -40,8 +40,8 @@ instance : IntoJson Float := ⟨fun x => .num (Number.ofFloat x)⟩
 instance {α : Type} [IntoJson α] : IntoJson (Option α) := ⟨fun
   | some a => intoJson a
   | none => .null⟩
-instance {α : Type} [IntoJson α] : IntoJson (List α) := ⟨fun xs => .arr (xs.map intoJson)⟩
-instance {α : Type} [IntoJson α] : IntoJson (Array α) := ⟨fun xs => .arr (xs.toList.map intoJson)⟩
+instance {α : Type} [IntoJson α] : IntoJson (List α) := ⟨fun xs => .arr (xs.map intoJson).toArray⟩
+instance {α : Type} [IntoJson α] : IntoJson (Array α) := ⟨fun xs => .arr (xs.map intoJson)⟩
 
 /-- A decimal literal `m × 10^±e`, as `json%` and `OfScientific` read it. -/
 def Number.ofScientific (m : Nat) (neg : Bool) (e : Nat) : Number :=
@@ -83,12 +83,12 @@ def expandJsonv : (depth : Nat) → TSyntax `jsonv → MacroM Term
     | `(jsonv| ($t : $ty)) => `(intoJson ($t : $ty))
     | `(jsonv| [$xs,*]) => do
       let items ← xs.getElems.mapM (expandJsonv depth)
-      `(Json.arr [$items,*])
+      `(Json.arr #[$items,*])
     | `(jsonv| {$ms,*}) => do
       let items ← ms.getElems.mapM fun m => match m with
         | `(jsonMember| $k:str : $v) => do `(($k, $(← expandJsonv depth v)))
         | _ => Macro.throwUnsupported
-      `(Json.obj [$items,*])
+      `(Json.obj #[$items,*])
     | _ => Macro.throwUnsupported
 
 /-- JSON literal syntax with spliced Lean terms. -/

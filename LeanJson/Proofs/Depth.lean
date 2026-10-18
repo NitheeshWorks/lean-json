@@ -57,7 +57,7 @@ theorem heightFields_lt {kvs : List (String × Json)} {m : Nat} (h : ∀ kv ∈ 
     exact Nat.max_lt.mpr ⟨h (k, v) (by simp), ih (fun z hz => h z (by simp [hz]))⟩
 
 theorem height_arr {ys : List Json} {k L : Nat} (hk : k < L) (h : ∀ y ∈ ys, k + 1 + y.height < L) :
-    k + (Json.arr ys).height < L := by
+    k + (Json.arr ⟨ys⟩).height < L := by
   cases ys with
   | nil => simpa [Json.height]
   | cons y ys =>
@@ -67,7 +67,7 @@ theorem height_arr {ys : List Json} {k L : Nat} (hk : k < L) (h : ∀ y ∈ ys, 
     simp only [Json.height]; omega
 
 theorem height_obj {kvs : List (String × Json)} {k L : Nat} (hk : k < L)
-    (h : ∀ kv ∈ kvs, k + 1 + kv.2.height < L) : k + (Json.obj kvs).height < L := by
+    (h : ∀ kv ∈ kvs, k + 1 + kv.2.height < L) : k + (Json.obj ⟨kvs⟩).height < L := by
   cases kvs with
   | nil => simpa [Json.height]
   | cons kv kvs =>
@@ -91,8 +91,9 @@ structure ParseInvariant (cfg : ParseCfg) (P : Nat → Json → Prop) : Prop whe
   num : ∀ k (bs : ByteArray) pos x p, cfg.depthOk k = true → parseNumber cfg bs pos = .ok (x, p) →
     P k (.num x)
   nonfinite : ∀ k, cfg.depthOk k = true → cfg.allowInfNan = true → P k (.num .nan) ∧ P k (.num .inf)
-  arr : ∀ k ys, cfg.depthOk k = true → (∀ y ∈ ys, P (k + 1) y) → P k (.arr ys)
-  obj : ∀ k kvs, cfg.depthOk k = true → (∀ kv ∈ kvs, P (k + 1) kv.2) → P k (.obj kvs)
+  arr : ∀ k (ys : List Json), cfg.depthOk k = true → (∀ y ∈ ys, P (k + 1) y) → P k (.arr ⟨ys⟩)
+  obj : ∀ k (kvs : List (String × Json)), cfg.depthOk k = true → (∀ kv ∈ kvs, P (k + 1) kv.2) →
+    P k (.obj ⟨kvs⟩)
 
 section
 variable (cfg : ParseCfg) (P : Nat → Json → Prop) (bs : ByteArray)
@@ -101,10 +102,10 @@ def HV (pos : Nat) : Prop :=
   ∀ k r, parseValueAtD cfg bs k pos = .ok r → P k r.1
 def HE (pos : Nat) : Prop :=
   ∀ k start acc r, start ≤ pos → parseElemsAt cfg bs k start pos acc = .ok r →
-    (∀ x ∈ acc, P k x) → ∃ ys, r.1 = .arr ys ∧ ∀ y ∈ ys, P k y
+    (∀ x ∈ acc.toList, P k x) → ∃ ys, r.1 = .arr ⟨ys⟩ ∧ ∀ y ∈ ys, P k y
 def HM (pos : Nat) : Prop :=
   ∀ k start acc r, start ≤ pos → parseMembersAt cfg bs k start pos acc = .ok r →
-    (∀ kv ∈ acc, P k kv.2) → ∃ kvs, r.1 = .obj kvs ∧ ∀ kv ∈ kvs, P k kv.2
+    (∀ kv ∈ acc.1.toList, P k kv.2) → ∃ kvs, r.1 = .obj ⟨kvs⟩ ∧ ∀ kv ∈ kvs, P k kv.2
 end
 
 theorem map_ok_fst {α : Type} {f : α → Json} {r : Except ParseErr (α × Nat)} {x : Json × Nat}
@@ -148,7 +149,7 @@ theorem hv_step {cfg : ParseCfg} {P : Nat → Json → Prop} (inv : ParseInvaria
       have := lt_size_of_get hp
       split at h
       · cases h; exact inv.arr k [] hk (by simp)
-      · obtain ⟨ys, e, hys⟩ := IHe _ (by omega) _ _ [] r (by omega) h (by simp)
+      · obtain ⟨ys, e, hys⟩ := IHe _ (by omega) _ _ #[] r (by omega) h (by simp)
         rw [e]; exact inv.arr k ys hk hys
   rw [ite_eq_right c91] at h
   by_cases c123 : (b == 123) = true
@@ -160,7 +161,7 @@ theorem hv_step {cfg : ParseCfg} {P : Nat → Json → Prop} (inv : ParseInvaria
       split at h
       · cases h; exact inv.obj k [] hk (by simp)
       · split at h
-        · obtain ⟨kvs, e, hkvs⟩ := IHm _ (by omega) _ _ [] r (by omega) h (by simp)
+        · obtain ⟨kvs, e, hkvs⟩ := IHm _ (by omega) _ _ .empty r (by omega) h (by simp [Fields.empty])
           rw [e]; exact inv.obj k kvs hk hkvs
         · cases h
   rw [ite_eq_right c123] at h
@@ -201,10 +202,10 @@ theorem he_step (cfg : ParseCfg) (P : Nat → Json → Prop) (bs : ByteArray) (p
     have hvh := hV _ _ hv
     have g1 := skipWs_ge bs p1
     have g2 := skipWs_ge bs (skipWs bs p1 + 1)
-    have hacc' : ∀ x ∈ v :: acc, P k x := by
-      intro x hx; rcases List.mem_cons.mp hx with rfl | hx
-      · exact hvh
+    have hacc' : ∀ x ∈ (acc.push v).toList, P k x := by
+      intro x hx; rcases (by simpa using hx : x ∈ acc.toList ∨ x = v) with hx | rfl
       · exact hacc x hx
+      · exact hvh
     split at h
     · cases h
     · split at h
@@ -212,7 +213,7 @@ theorem he_step (cfg : ParseCfg) (P : Nat → Json → Prop) (bs : ByteArray) (p
         · cases h
         · exact IHe _ (by simp at pr; omega) _ _ _ r (by simp at pr; omega) h hacc'
       · split at h
-        · cases h; exact ⟨_, rfl, fun y hy => hacc' y (List.mem_reverse.mp hy)⟩
+        · cases h; exact ⟨_, rfl, hacc'⟩
         · cases h
 
 theorem hm_step (cfg : ParseCfg) (P : Nat → Json → Prop) (bs : ByteArray) (pos : Nat)
@@ -237,10 +238,10 @@ theorem hm_step (cfg : ParseCfg) (P : Nat → Json → Prop) (bs : ByteArray) (p
           have hvh := IHv _ (by omega) _ _ hv
           have g2 := skipWs_ge bs p2
           have g3 := skipWs_ge bs (skipWs bs p2 + 1)
-          have hacc' : ∀ kv ∈ (key, v) :: acc, P k kv.2 := by
-            intro kv hx; rcases List.mem_cons.mp hx with rfl | hx
-            · exact hvh
+          have hacc' : ∀ kv ∈ (acc.add cfg.dedupKeys key v).1.toList, P k kv.2 := by
+            intro kv hx; rcases Fields.mem_add hx with hx | rfl
             · exact hacc kv hx
+            · exact hvh
           split at h
           · cases h
           · split at h
@@ -252,7 +253,7 @@ theorem hm_step (cfg : ParseCfg) (P : Nat → Json → Prop) (bs : ByteArray) (p
                 · exact IHm _ (by simp at pr; omega) _ _ _ r (by simp at pr; omega) h hacc'
                 · split at h <;> cases h
             · split at h
-              · cases h; exact ⟨_, rfl, fun kv hkv => hacc' kv (List.mem_reverse.mp hkv)⟩
+              · cases h; exact ⟨_, rfl, hacc'⟩
               · cases h
       · cases h
 
@@ -354,12 +355,8 @@ theorem finiteInvariant (cfg : ParseCfg) :
   scalar _ a _ ha hn _ := by
     cases a with
     | num n => exact absurd rfl (hn n)
-    | arr xs => cases xs with
-      | nil => rfl
-      | cons _ _ => simp [Json.height] at ha
-    | obj kvs => cases kvs with
-      | nil => rfl
-      | cons kv _ => obtain ⟨_, _⟩ := kv; simp [Json.height] at ha
+    | arr xs => rcases xs with ⟨_ | _⟩ <;> first | rfl | simp [Json.height] at ha
+    | obj kvs => rcases kvs with ⟨_ | ⟨⟨_, _⟩, _⟩⟩ <;> first | rfl | simp [Json.height] at ha
     | _ => rfl
   num _ _ _ _ _ _ hx hs := by simpa [Json.allFinite] using parseNumber_strict_finite hs hx
   nonfinite _ _ ha := ⟨fun hs => absurd (ha.symm.trans hs) (by decide),
@@ -385,16 +382,21 @@ theorem or_fields {A : Prop} {k : String} {v : Json} {kvs : List (String × Json
   simp only [Json.allFiniteFields, Bool.and_eq_true] at h
   exact ⟨h.imp id And.left, h.imp id And.right⟩
 
+/-- The configuration `IntsFit` is stated for: jiter's integer limit only. -/
+abbrev intsCfg : ParseCfg := { maxDepth := none, dedupKeys := false }
+/-- The configuration `KeysUnique` is stated for: distinct keys only. -/
+abbrev keysCfg : ParseCfg := { ParseCfg.lossless with dedupKeys := true }
+
 mutual
-theorem fitsAt_of : ∀ (a : Bool) (k : Nat) (v : Json), FitsAt { maxDepth := none } k v →
+theorem fitsAt_of : ∀ (a : Bool) (k : Nat) (v : Json), FitsAt intsCfg k v → FitsAt keysCfg k v →
     k + v.height < 201 → (a = true ∨ v.allFinite = true) → FitsAt { allowInfNan := a } k v
-  | a, k, .null, _, hh, _ | a, k, .bool _, _, hh, _ | a, k, .str _, _, hh, _ => by
+  | a, k, .null, _, _, hh, _ | a, k, .bool _, _, _, hh, _ | a, k, .str _, _, _, hh, _ => by
     simp [FitsAt, ParseCfg.depthOk, Json.height] at hh ⊢; omega
-  | a, k, .num _, h, hh, hf => by
+  | a, k, .num _, h, _, hh, hf => by
     refine ⟨?_, h.2.1, by simpa [Json.allFinite] using hf⟩
     simp [ParseCfg.depthOk, Json.height] at hh ⊢; omega
-  | a, k, .arr xs, h, hh, hf => by
-    refine ⟨?_, fitsList_of a (k + 1) xs h.2 ?_ (by simpa [Json.allFinite] using hf)⟩
+  | a, k, .arr ⟨xs⟩, h, u, hh, hf => by
+    refine ⟨?_, fitsList_of a (k + 1) xs h.2 u.2 ?_ (by simpa [Json.allFinite] using hf)⟩
     · cases xs <;> simp [ParseCfg.depthOk, Json.height] at hh ⊢ <;> omega
     · intro x hx
       cases xs with
@@ -402,8 +404,8 @@ theorem fitsAt_of : ∀ (a : Bool) (k : Nat) (v : Json), FitsAt { maxDepth := no
       | cons y ys =>
         have := height_le_list hx
         simp only [Json.height, Json.heightList] at hh this; omega
-  | a, k, .obj kvs, h, hh, hf => by
-    refine ⟨?_, fitsFields_of a (k + 1) kvs h.2 ?_ (by simpa [Json.allFinite] using hf)⟩
+  | a, k, .obj ⟨kvs⟩, h, u, hh, hf => by
+    refine ⟨?_, u.2.1, fitsFields_of a (k + 1) kvs h.2.2 u.2.2 ?_ (by simpa [Json.allFinite] using hf)⟩
     · cases kvs with
       | nil => simp [ParseCfg.depthOk, Json.height] at hh ⊢; omega
       | cons kv kvs => obtain ⟨_, _⟩ := kv; simp [ParseCfg.depthOk, Json.height] at hh ⊢; omega
@@ -414,30 +416,31 @@ theorem fitsAt_of : ∀ (a : Bool) (k : Nat) (v : Json), FitsAt { maxDepth := no
         obtain ⟨_, _⟩ := y
         have := height_le_fields hkv
         simp only [Json.height, Json.heightFields] at hh this; omega
-theorem fitsList_of : ∀ (a : Bool) (k : Nat) (xs : List Json), FitsList { maxDepth := none } k xs →
-    (∀ x ∈ xs, k + x.height < 201) → (a = true ∨ Json.allFiniteList xs = true) →
+theorem fitsList_of : ∀ (a : Bool) (k : Nat) (xs : List Json), FitsList intsCfg k xs →
+    FitsList keysCfg k xs → (∀ x ∈ xs, k + x.height < 201) → (a = true ∨ Json.allFiniteList xs = true) →
     FitsList { allowInfNan := a } k xs
-  | _, _, [], _, _, _ => trivial
-  | a, k, x :: xs, h, hh, hf =>
-    ⟨fitsAt_of a k x h.1 (hh x (by simp)) (or_list hf).1,
-      fitsList_of a k xs h.2 (fun y hy => hh y (by simp [hy])) (or_list hf).2⟩
+  | _, _, [], _, _, _, _ => trivial
+  | a, k, x :: xs, h, u, hh, hf =>
+    ⟨fitsAt_of a k x h.1 u.1 (hh x (by simp)) (or_list hf).1,
+      fitsList_of a k xs h.2 u.2 (fun y hy => hh y (by simp [hy])) (or_list hf).2⟩
 theorem fitsFields_of : ∀ (a : Bool) (k : Nat) (kvs : List (String × Json)),
-    FitsFields { maxDepth := none } k kvs → (∀ kv ∈ kvs, k + kv.2.height < 201) →
+    FitsFields intsCfg k kvs → FitsFields keysCfg k kvs → (∀ kv ∈ kvs, k + kv.2.height < 201) →
     (a = true ∨ Json.allFiniteFields kvs = true) → FitsFields { allowInfNan := a } k kvs
-  | _, _, [], _, _, _ => trivial
-  | a, k, (key, v) :: kvs, h, hh, hf =>
-    ⟨fitsAt_of a k v h.1 (hh (key, v) (by simp)) (or_fields hf).1,
-      fitsFields_of a k kvs h.2 (fun y hy => hh y (by simp [hy])) (or_fields hf).2⟩
+  | _, _, [], _, _, _, _ => trivial
+  | a, k, (key, v) :: kvs, h, u, hh, hf =>
+    ⟨fitsAt_of a k v h.1 u.1 (hh (key, v) (by simp)) (or_fields hf).1,
+      fitsFields_of a k kvs h.2 u.2 (fun y hy => hh y (by simp [hy])) (or_fields hf).2⟩
 end
 
-/-- A value whose integers fit and whose height is at most 200 is within the
-default limits. -/
-theorem fits_default {j : Json} (hint : IntsFit j) (hdepth : j.height ≤ 200) : Fits {} j :=
-  fitsAt_of true 0 j hint (by omega) (Or.inl rfl)
+/-- A value whose integers fit, whose keys are unique and whose height is at
+most 200 is within the default limits. -/
+theorem fits_default {j : Json} (hint : IntsFit j) (hkeys : KeysUnique j) (hdepth : j.height ≤ 200) :
+    Fits {} j :=
+  fitsAt_of true 0 j hint hkeys (by omega) (Or.inl rfl)
 
 /-- …and within the strict limits, when it has no NaN or infinity. -/
-theorem fits_strict {j : Json} (hint : IntsFit j) (hdepth : j.height ≤ 200)
+theorem fits_strict {j : Json} (hint : IntsFit j) (hkeys : KeysUnique j) (hdepth : j.height ≤ 200)
     (hfin : j.allFinite = true) : Fits .strict j :=
-  fitsAt_of false 0 j hint (by omega) (Or.inr hfin)
+  fitsAt_of false 0 j hint hkeys (by omega) (Or.inr hfin)
 
 end LeanJson

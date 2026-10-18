@@ -8,7 +8,8 @@ def main : IO Unit := do
   let data ← IO.ofExcept ((·.val) <$> from_json "{\"name\": \"Alice\", \"tags\": [\"a\", \"b\"]}"
     |>.mapError (·.description))
   IO.println data                                   -- {"name":"Alice","tags":["a","b"]}
-  IO.println (data.getObjVal? "name")               -- some "Alice"
+  IO.println data["name"]?                          -- (some "Alice")
+  IO.println data["tags"]?[1]?                      -- (some "b")
   -- to_json: compact by default, like Starlette's JSONResponse
   let b := (to_json data).val
   IO.println (String.fromUTF8! b)                   -- {"name":"Alice","tags":["a","b"]}

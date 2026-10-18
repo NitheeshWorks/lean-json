@@ -26,23 +26,23 @@ def printTo (o : PrintOpts) (d : Nat) (acc : ByteArray) : Json → ByteArray
   | .bool false => pushList acc litFalse
   | .num n => pushList acc (printNumberIn o n)
   | .str s => pushString o.ensureAscii acc s
-  | .arr [] => (acc.push 91).push 93
-  | .arr (x :: xs) =>
+  | .arr ⟨[]⟩ => (acc.push 91).push 93
+  | .arr ⟨x :: xs⟩ =>
     (pushList (printElemsTo o (d + 1) (printTo o (d + 1) (pushList (acc.push 91) (o.nl (d + 1))) x) xs)
       (o.nl d)).push 93
-  | .obj [] => (acc.push 123).push 125
-  | .obj ((k, v) :: kvs) =>
+  | .obj ⟨[]⟩ => (acc.push 123).push 125
+  | .obj ⟨(k, v) :: kvs⟩ =>
     (pushList (printMembersTo o (d + 1)
       (printTo o (d + 1) (pushList (pushString o.ensureAscii (pushList (acc.push 123) (o.nl (d + 1))) k)
         o.colon) v) kvs) (o.nl d)).push 125
 def printElemsTo (o : PrintOpts) (d : Nat) (acc : ByteArray) : List Json → ByteArray
   | [] => acc
-  | x :: xs => printElemsTo o d (printTo o d (pushList (acc.push 44) (o.nl d)) x) xs
+  | x :: xs => printElemsTo o d (printTo o d (pushList (acc.push 44) (o.sep d)) x) xs
 def printMembersTo (o : PrintOpts) (d : Nat) (acc : ByteArray) : List (String × Json) → ByteArray
   | [] => acc
   | (k, v) :: kvs =>
     printMembersTo o d
-      (printTo o d (pushList (pushString o.ensureAscii (pushList (acc.push 44) (o.nl d)) k) o.colon) v) kvs
+      (printTo o d (pushList (pushString o.ensureAscii (pushList (acc.push 44) (o.sep d)) k) o.colon) v) kvs
 end
 
 /-- The printing of `v` under `o`, as bytes. -/

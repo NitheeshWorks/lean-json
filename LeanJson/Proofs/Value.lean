@@ -1,5 +1,6 @@
 import LeanJson.Proofs.String
 import LeanJson.Proofs.Unfold
+import LeanJson.Proofs.Fields
 
 /-!
 # Proofs: the value codec
@@ -26,10 +27,20 @@ theorem wsList_nl (o : PrintOpts) (d : Nat) : WsList (o.nl d) := by
     simp only [List.mem_cons, List.mem_replicate] at hb
     rcases hb with rfl | ⟨_, rfl⟩ <;> decide
 
+theorem wsList_sep (o : PrintOpts) (d : Nat) : WsList (o.sep d) := by
+  unfold PrintOpts.sep WsList
+  split
+  · split <;> simp; decide
+  · intro b hb
+    simp only [List.mem_cons, List.mem_replicate] at hb
+    rcases hb with rfl | ⟨_, rfl⟩ <;> decide
+
 theorem colon_eq (o : PrintOpts) : ∃ ws, o.colon = 58 :: ws ∧ WsList ws := by
   unfold PrintOpts.colon
   split
-  · exact ⟨[], rfl, by simp [WsList]⟩
+  · split
+    · exact ⟨[32], rfl, by simp [WsList]; decide⟩
+    · exact ⟨[], rfl, by simp [WsList]⟩
   · exact ⟨[32], rfl, by simp [WsList]; decide⟩
 
 theorem skipWs_ext {bs : ByteArray} :
@@ -124,11 +135,11 @@ theorem printWith_head (o : PrintOpts) (d : Nat) (v : Json) :
   | bool b => cases b <;> exact ⟨_, _, rfl, by simp [ValueHead]⟩
   | num n => exact printNumberIn_head o n
   | str s => exact ⟨_, _, rfl, by simp [ValueHead]⟩
-  | arr xs => cases xs <;> exact ⟨_, _, rfl, by simp [ValueHead]⟩
+  | arr xs => rcases xs with ⟨_ | _⟩ <;> exact ⟨_, _, rfl, by simp [ValueHead]⟩
   | obj kvs =>
     match kvs with
-    | [] => exact ⟨_, _, rfl, by simp [ValueHead]⟩
-    | (_, _) :: _ => exact ⟨_, _, rfl, by simp [ValueHead]⟩
+    | ⟨[]⟩ => exact ⟨_, _, rfl, by simp [ValueHead]⟩
+    | ⟨(_, _) :: _⟩ => exact ⟨_, _, rfl, by simp [ValueHead]⟩
 
 theorem printWith_ne_nil (o : PrintOpts) (d : Nat) (v : Json) : printWith o d v ≠ [] := by
   obtain ⟨b, t, e, _⟩ := printWith_head o d v; rw [e]; simp
@@ -168,11 +179,11 @@ theorem numHead_facts {b : UInt8} (h : b = 45 ∨ ∃ d : Fin 10, b = digitByte 
   · revert d; decide
 
 theorem printWith_arr_cons (o : PrintOpts) (d : Nat) (x : Json) (xs : List Json) :
-    printWith o d (.arr (x :: xs)) = 91 :: (o.nl (d + 1) ++ (printFirst o (d + 1) (x :: xs) ++ o.nl d ++ [93])) := by
+    printWith o d (.arr ⟨x :: xs⟩) = 91 :: (o.nl (d + 1) ++ (printFirst o (d + 1) (x :: xs) ++ o.nl d ++ [93])) := by
   simp [printWith, printFirst]
 
 theorem printWith_obj_cons (o : PrintOpts) (d : Nat) (k : String) (v : Json) (kvs : List (String × Json)) :
-    printWith o d (.obj ((k, v) :: kvs)) =
+    printWith o d (.obj ⟨(k, v) :: kvs⟩) =
       123 :: (o.nl (d + 1) ++ (printFirstM o (d + 1) ((k, v) :: kvs) ++ o.nl d ++ [125])) := by
   simp [printWith, printFirstM]
 
@@ -317,7 +328,7 @@ theorem parseValue_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (v : Json) (d k : 
     simp only [show ((34 : UInt8) == 34) = true by decide, ↓reduceIte]
     rw [parseString_printString_ext _ s hp]
     rfl
-  | .arr [], d, k, bs, pos, ws, rest, hw, h, hr, hfit, hrb => by
+  | .arr ⟨[]⟩, d, k, bs, pos, ws, rest, hw, h, hr, hfit, hrb => by
     have hsk := at_ws_head h hw rfl (by decide)
     have hp := h.app
     simp only [printWith] at hp ⊢
@@ -330,7 +341,7 @@ theorem parseValue_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (v : Json) (d k : 
       Bool.false_eq_true, ↓reduceIte]
     rw [skipWs_nil (by decide) hp.next, hp.next.get]
     simp
-  | .arr (x :: xs), d, k, bs, pos, ws, rest, hw, h, hr, hfit, hrb => by
+  | .arr ⟨x :: xs⟩, d, k, bs, pos, ws, rest, hw, h, hr, hfit, hrb => by
     rw [printWith_arr_cons] at h ⊢
     have hsk := at_ws_head h hw rfl (by decide)
     have hp := h.app
@@ -351,10 +362,10 @@ theorem parseValue_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (v : Json) (d k : 
       rw [e] at hp2; exact hp2.get]
     have hb93 : (b == 93) = false := by simpa using (valueHead_props hb).2.1
     simp only [hb93, Bool.false_eq_true, ↓reduceIte]
-    rw [parseElems_ext o cfg (x :: xs) (d + 1) d (k + 1) [] (by omega) (by simp) (by simpa [List.append_assoc] using hp2) hfit.2 (by simpa only [Json.allFinite] using hrb)]
-    simp only [List.reverse_nil, List.nil_append, List.length_cons, List.length_append]
+    rw [parseElems_ext o cfg (x :: xs) (d + 1) d (k + 1) #[] (by omega) (by simp) (by simpa [List.append_assoc] using hp2) hfit.2 (by simpa only [Json.allFinite] using hrb)]
+    simp only [List.nil_append, List.length_cons, List.length_append]
     congr 2; omega
-  | .obj [], d, k, bs, pos, ws, rest, hw, h, hr, hfit, hrb => by
+  | .obj ⟨[]⟩, d, k, bs, pos, ws, rest, hw, h, hr, hfit, hrb => by
     have hsk := at_ws_head h hw rfl (by decide)
     have hp := h.app
     simp only [printWith] at hp ⊢
@@ -367,7 +378,7 @@ theorem parseValue_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (v : Json) (d k : 
       show ((123 : UInt8) == 123) = true by decide, Bool.false_eq_true, ↓reduceIte]
     rw [skipWs_nil (by decide) hp.next, hp.next.get]
     simp
-  | .obj ((key, v) :: kvs), d, k, bs, pos, ws, rest, hw, h, hr, hfit, hrb => by
+  | .obj ⟨(key, v) :: kvs⟩, d, k, bs, pos, ws, rest, hw, h, hr, hfit, hrb => by
     rw [printWith_obj_cons] at h ⊢
     have hsk := at_ws_head h hw rfl (by decide)
     have hp := h.app
@@ -387,15 +398,17 @@ theorem parseValue_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (v : Json) (d k : 
     rw [show bs[pos + ws.length + 1 + (o.nl (d + 1)).length]? = some 34 by
       rw [e] at hp2; exact hp2.get]
     simp (config := { decide := true }) only [↓reduceIte]
-    rw [parseMembers_ext o cfg ((key, v) :: kvs) (d + 1) d (k + 1) [] (by omega) (by simp) (by simpa [List.append_assoc] using hp2) hfit.2 (by simpa only [Json.allFinite] using hrb)]
-    simp only [List.reverse_nil, List.nil_append, List.length_cons, List.length_append]
+    rw [parseMembers_ext o cfg ((key, v) :: kvs) (d + 1) d (k + 1) .empty (by omega) (by simp)
+      (by simpa [List.append_assoc] using hp2) Fields.indexed_empty (by simpa [Fields.empty] using hfit.2.1)
+      hfit.2.2 (by simpa only [Json.allFinite] using hrb)]
+    simp only [Fields.empty, List.nil_append, List.length_cons, List.length_append]
     congr 2; omega
 
 theorem parseElems_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (xs : List Json) (d e k : Nat) {bs : ByteArray}
-    {start pos : Nat} {rest : List UInt8} (acc : List Json), start ≤ pos → xs ≠ [] →
+    {start pos : Nat} {rest : List UInt8} (acc : Array Json), start ≤ pos → xs ≠ [] →
     At bs pos (printFirst o d xs ++ o.nl e ++ [93]) rest →
     Spec.FitsList cfg k xs → (o.infNan = .constants ∨ Json.allFiniteList xs = true) →
-    parseElemsAt cfg bs k start pos acc = .ok (.arr (acc.reverse ++ xs), pos + (printFirst o d xs ++ o.nl e ++ [93]).length)
+    parseElemsAt cfg bs k start pos acc = .ok (.arr ⟨acc.toList ++ xs⟩, pos + (printFirst o d xs ++ o.nl e ++ [93]).length)
   | [], _, _, _, _, _, _, _, _, _, hne, _, _, _ => absurd rfl hne
   | x :: xs, d, e, k, bs, start, pos, rest, acc, hsp, _, h, hfit, hrb => by
     simp only [printFirst, List.length_append] at h ⊢
@@ -418,11 +431,11 @@ theorem parseElems_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (xs : List Json) (
       have h2 := h1.app
       rw [h2.get]
       simp
-      omega
+      exact ⟨by cases acc; simp, by omega⟩
     | y :: ys =>
       simp only [printElems, List.cons_append, List.append_assoc] at h ⊢
       have hx : At bs pos ([] ++ printWith o d x)
-          (44 :: (o.nl d ++ (printWith o d y ++ (printElems o d ys ++ (o.nl e ++ ([93] ++ rest)))))) := by
+          (44 :: (o.sep d ++ (printWith o d y ++ (printElems o d ys ++ (o.nl e ++ ([93] ++ rest)))))) := by
         simpa [List.append_assoc] using h.assoc
       rw [parseValue_ext o cfg x d k wsList_nil hx (numStop_of_head rfl (by simp)) hfit.1 (by simp only [Json.allFiniteList, Bool.and_eq_true] at hrb; exact or_left_of_and hrb)]
       simp only [List.length_nil, Nat.add_zero]
@@ -431,33 +444,39 @@ theorem parseElems_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (xs : List Json) (
       simp only
       obtain ⟨b, t, eb, hb⟩ := printWith_head o d y
       have h2 := h1.next
-      have hq := at_ws_head h2 (wsList_nl o d) (by rw [eb]; rfl) (valueHead_props hb).1
+      have hq := at_ws_head h2 (wsList_sep o d) (by rw [eb]; rfl) (valueHead_props hb).1
       rw [hq]
       have h3 := h2.app
-      rw [show bs[pos + (printWith o d x).length + 1 + (o.nl d).length]? = some b by
+      rw [show bs[pos + (printWith o d x).length + 1 + (o.sep d).length]? = some b by
         rw [eb] at h3; exact h3.get]
       have hb93 : (some b == some (93 : UInt8)) = false := by
         simpa using (valueHead_props hb).2.1
       simp only [hb93, Bool.false_eq_true, ↓reduceIte]
       have IH := parseElems_ext o cfg (y :: ys) d e k (bs := bs) (start := start)
-        (pos := pos + (printWith o d x).length + 1 + (o.nl d).length)
-        (rest := rest) (x :: acc) (by omega) (by simp)
+        (pos := pos + (printWith o d x).length + 1 + (o.sep d).length)
+        (rest := rest) (acc.push x) (by omega) (by simp)
         (by simpa [printFirst, List.append_assoc] using h3)
         hfit.2 (by simp only [Json.allFiniteList, Bool.and_eq_true] at hrb ⊢; exact or_right_of_and hrb)
       try simp (config := { decide := true }) only [↓reduceIte]
       rw [IH]
-      simp only [printFirst, List.reverse_cons, List.append_assoc, List.singleton_append,
+      simp only [printFirst, Array.toList_push, List.append_assoc, List.singleton_append,
         List.length_append, List.length_cons]
       congr 2; omega
 
 theorem parseMembers_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (kvs : List (String × Json)) (d e k : Nat)
-    {bs : ByteArray} {start pos : Nat} {rest : List UInt8} (acc : List (String × Json)), start ≤ pos →
-    kvs ≠ [] → At bs pos (printFirstM o d kvs ++ o.nl e ++ [125]) rest →
+    {bs : ByteArray} {start pos : Nat} {rest : List UInt8} (acc : Fields), start ≤ pos →
+    kvs ≠ [] → At bs pos (printFirstM o d kvs ++ o.nl e ++ [125]) rest → acc.Indexed →
+    (cfg.dedupKeys = true → (acc.1.toList.map Prod.fst ++ kvs.map Prod.fst).Nodup) →
     Spec.FitsFields cfg k kvs → (o.infNan = .constants ∨ Json.allFiniteFields kvs = true) →
     parseMembersAt cfg bs k start pos acc =
-      .ok (.obj (acc.reverse ++ kvs), pos + (printFirstM o d kvs ++ o.nl e ++ [125]).length)
-  | [], _, _, _, _, _, _, _, _, _, hne, _, _, _ => absurd rfl hne
-  | (key, v) :: kvs, d, e, k, bs, start, pos, rest, acc, hsp, _, h, hfit, hrb => by
+      .ok (.obj ⟨acc.1.toList ++ kvs⟩, pos + (printFirstM o d kvs ++ o.nl e ++ [125]).length)
+  | [], _, _, _, _, _, _, _, _, _, hne, _, _, _, _, _ => absurd rfl hne
+  | (key, v) :: kvs, d, e, k, bs, start, pos, rest, acc, hsp, _, h, hidx, hnd, hfit, hrb => by
+    have hfresh : cfg.dedupKeys = true → key ∉ acc.1.toList.map Prod.fst := fun hd hm => by
+      have := hnd hd
+      simp only [List.map_cons] at this
+      exact (List.nodup_append.mp this).2.2 key hm key (by simp) rfl
+    obtain ⟨hadd, hidx'⟩ := Fields.add_fresh (v := v) hidx hfresh
     obtain ⟨cws, ecol, hcws⟩ := colon_eq o
     simp only [printFirstM, ecol, List.length_append, List.length_cons] at h ⊢
     rw [parseMembersAt_eq _ _ _ _ _ _ hsp]
@@ -488,37 +507,38 @@ theorem parseMembers_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (kvs : List (Str
           (o.nl e ++ [125]) rest :=
         (At.drop (hv.re rfl (by simp) (l' := cws ++ printWith o d v))).re (by simp; omega) rfl
       rw [at_ws_head (ws := o.nl e) h2 (wsList_nl o e) rfl (by decide)]
-      rw [h2.app.get]
+      rw [h2.app.get, hadd]
       simp
-      omega
+      exact ⟨by rcases acc with ⟨⟨_⟩, _⟩; simp, by omega⟩
     | (k', v') :: kvs' =>
       simp only [printMembers, List.cons_append, List.append_assoc] at h1 ⊢
       have hv : At bs (pos + (printString o.ensureAscii key).length + 1) (cws ++ printWith o d v)
-          (44 :: (o.nl d ++ (printFirstM o d ((k', v') :: kvs') ++ (o.nl e ++ ([125] ++ rest))))) :=
+          (44 :: (o.sep d ++ (printFirstM o d ((k', v') :: kvs') ++ (o.nl e ++ ([125] ++ rest))))) :=
         h1.next.re rfl (by simp [printFirstM, ecol])
       rw [parseValue_ext o cfg v d k hcws hv (numStop_of_head rfl (by simp)) hfit.1 (by simp only [Json.allFiniteFields, Bool.and_eq_true] at hrb; exact or_left_of_and hrb)]
       simp only
       have h2 : At bs (pos + (printString o.ensureAscii key).length + 1 + cws.length + (printWith o d v).length)
-          (44 :: (o.nl d ++ printFirstM o d ((k', v') :: kvs') ++ o.nl e ++ [125])) rest :=
+          (44 :: (o.sep d ++ printFirstM o d ((k', v') :: kvs') ++ o.nl e ++ [125])) rest :=
         (At.drop (hv.re rfl (by simp) (l' := cws ++ printWith o d v)
-          (r' := (44 :: (o.nl d ++ printFirstM o d ((k', v') :: kvs') ++ o.nl e ++ [125])) ++ rest))).re
+          (r' := (44 :: (o.sep d ++ printFirstM o d ((k', v') :: kvs') ++ o.nl e ++ [125])) ++ rest))).re
           (by simp; omega) rfl
       rw [skipWs_nil (by decide) h2, h2.get]
       simp only
       obtain ⟨t, et⟩ := printFirstM_head o d k' v' kvs'
       have h3 := h2.next
       have h3' : At bs (pos + (printString o.ensureAscii key).length + 1 + cws.length + (printWith o d v).length + 1)
-          (o.nl d ++ (34 :: t ++ o.nl e ++ [125])) rest := h3.re rfl (by simp [et])
-      rw [at_ws_head h3' (wsList_nl o d) rfl (by decide)]
+          (o.sep d ++ (34 :: t ++ o.nl e ++ [125])) rest := h3.re rfl (by simp [et])
+      rw [at_ws_head h3' (wsList_sep o d) rfl (by decide)]
       have h4 := h3'.app
       rw [h4.get]
       simp only
       have IH := parseMembers_ext o cfg ((k', v') :: kvs') d e k (bs := bs) (start := start) (rest := rest)
-        ((key, v) :: acc) (by omega) (by simp) (h4.re rfl (by simp [et]))
+        (acc.add cfg.dedupKeys key v) (by omega) (by simp) (h4.re rfl (by simp [et])) hidx'
+        (fun hd => by rw [hadd]; simpa using hnd hd)
         hfit.2 (by simp only [Json.allFiniteFields, Bool.and_eq_true] at hrb ⊢; exact or_right_of_and hrb)
       try simp (config := { decide := true }) only [↓reduceIte]
-      rw [IH]
-      simp only [printFirstM, ecol, List.reverse_cons, List.append_assoc, List.singleton_append,
+      rw [IH, hadd]
+      simp only [printFirstM, ecol, Array.toList_push, List.append_assoc, List.singleton_append,
         List.length_append, List.length_cons]
       congr 2; simp; omega
 end

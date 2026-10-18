@@ -31,11 +31,12 @@ structure VerifiedJson where
   /-- Compact output has no layout whitespace. -/
   compact : Compact printBytes
   /-- `parse (print j) = .ok j`, for every value within the default limits:
-  integers within 4300 bytes, height at most 200. -/
-  parsePrint : ∀ (j : Json) (o : PrintOpts), ReadsBack o j → IntsFit j → j.height ≤ 200 →
+  integers within 4300 bytes, no repeated key, height at most 200. -/
+  parsePrint : ∀ (j : Json) (o : PrintOpts), ReadsBack o j → IntsFit j → KeysUnique j → j.height ≤ 200 →
     parseDocument (print o 0 j).toByteArray = .ok j
   /-- Strict mode reads back every finite value. -/
-  parsePrintStrict : ∀ (j : Json) (o : PrintOpts), IntsFit j → j.height ≤ 200 → j.allFinite = true →
+  parsePrintStrict : ∀ (j : Json) (o : PrintOpts), IntsFit j → KeysUnique j → j.height ≤ 200 →
+    j.allFinite = true →
     parseDocumentWith .strict (print o 0 j).toByteArray = .ok j
   /-- Strict mode never returns a NaN or infinity. -/
   strictFinite : ∀ (bs : ByteArray) (v : Json), parseDocumentWith .strict bs = .ok v → v.allFinite = true
@@ -50,8 +51,9 @@ def theVerifiedJson : VerifiedJson where
   printInjective := print_injective_spec
   stepProgress := step_progress
   compact := print_compact_spec
-  parsePrint j o hrb hi hd := parse_print j o (fits_default hi hd) hrb
-  parsePrintStrict j o hi hd hf := parseDocumentWith_print .strict o j (fits_strict hi hd hf) (Or.inr hf)
+  parsePrint j o hrb hi hk hd := parse_print j o (fits_default hi hk hd) hrb
+  parsePrintStrict j o hi hk hd hf :=
+    parseDocumentWith_print .strict o j (fits_strict hi hk hd hf) (Or.inr hf)
   strictFinite _ _ h := parse_finite rfl h
   depthBound _ _ h := parseDocument_height h
 

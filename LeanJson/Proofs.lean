@@ -4,6 +4,7 @@ import LeanJson.Proofs.Number
 import LeanJson.Proofs.String
 import LeanJson.Proofs.Value
 import LeanJson.Proofs.Unfold
+import LeanJson.Proofs.Fields
 import LeanJson.Proofs.Codec
 import LeanJson.Proofs.Depth
 import LeanJson.Proofs.Compact

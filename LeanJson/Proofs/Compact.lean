@@ -3,7 +3,7 @@ import LeanJson.Proofs.Depth
 /-!
 # Proofs: the compact form has no layout whitespace
 
-`print_compact`: with `indent = none` the output contains no tab, line feed
+`print_compact`: with `indent = none` (and not `spaced`) the output contains no tab, line feed
 or carriage return byte, and a space byte only where a string in the value
 contains a space. So the only separators are `,` and `:`.
 -/
@@ -202,11 +202,13 @@ theorem printNumberIn_quiet (o : PrintOpts) (n : Number) :
       cases n <;> simp [Number.constName] at h
 
 section
-variable (o : PrintOpts) (ho : o.indent = none)
-include ho
+variable (o : PrintOpts) (ho : o.indent = none) (hs : o.spaced = false)
+include ho hs
 
+omit hs in
 theorem nl_none (d : Nat) : o.nl d = [] := by simp [PrintOpts.nl, ho]
-theorem colon_none : o.colon = [58] := by simp [PrintOpts.colon, ho]
+theorem sep_none (d : Nat) : o.sep d = [] := by simp [PrintOpts.sep, ho, hs]
+theorem colon_none : o.colon = [58] := by simp [PrintOpts.colon, ho, hs]
 
 mutual
 theorem printWith_quiet : ∀ (v : Json) (d : Nat), AllQuiet (HasSpaceInString v) (printWith o d v)
@@ -222,26 +224,26 @@ theorem printWith_quiet : ∀ (v : Json) (d : Nat), AllQuiet (HasSpaceInString v
       quiet_lit (by decide)⟩
   | .num n, d => printNumberIn_quiet o n
   | .str s, d => printString_quiet _ s
-  | .arr [], d => by
+  | .arr ⟨[]⟩, d => by
     simp only [printWith, allQuiet_cons, allQuiet_nil, and_true]
     exact ⟨quiet_lit (by decide), quiet_lit (by decide)⟩
-  | .arr (x :: xs), d => by
-    have h1 := allQuiet_mono (printWith_quiet x (d + 1)) (Q := HasSpaceInString (.arr (x :: xs))) Or.inl
-    have h2 := allQuiet_mono (printElems_quiet xs (d + 1)) (Q := HasSpaceInString (.arr (x :: xs))) Or.inr
+  | .arr ⟨x :: xs⟩, d => by
+    have h1 := allQuiet_mono (printWith_quiet x (d + 1)) (Q := HasSpaceInString (.arr ⟨x :: xs⟩)) Or.inl
+    have h2 := allQuiet_mono (printElems_quiet xs (d + 1)) (Q := HasSpaceInString (.arr ⟨x :: xs⟩)) Or.inr
     simp only [printWith, nl_none o ho, List.append_nil, allQuiet_cons,
       allQuiet_append, allQuiet_nil, and_true]
     quiet_split
-  | .obj [], d => by
+  | .obj ⟨[]⟩, d => by
     simp only [printWith, allQuiet_cons, allQuiet_nil, and_true]
     exact ⟨quiet_lit (by decide), quiet_lit (by decide)⟩
-  | .obj ((k, v) :: kvs), d => by
+  | .obj ⟨(k, v) :: kvs⟩, d => by
     have h1 := allQuiet_mono (printString_quiet o.ensureAscii k)
-      (Q := HasSpaceInString (.obj ((k, v) :: kvs))) Or.inl
+      (Q := HasSpaceInString (.obj ⟨(k, v) :: kvs⟩)) Or.inl
     have h2 := allQuiet_mono (printWith_quiet v (d + 1))
-      (Q := HasSpaceInString (.obj ((k, v) :: kvs))) (fun h => Or.inr (Or.inl h))
+      (Q := HasSpaceInString (.obj ⟨(k, v) :: kvs⟩)) (fun h => Or.inr (Or.inl h))
     have h3 := allQuiet_mono (printMembers_quiet kvs (d + 1))
-      (Q := HasSpaceInString (.obj ((k, v) :: kvs))) (fun h => Or.inr (Or.inr h))
-    simp only [printWith, nl_none o ho, colon_none o ho, List.append_nil,
+      (Q := HasSpaceInString (.obj ⟨(k, v) :: kvs⟩)) (fun h => Or.inr (Or.inr h))
+    simp only [printWith, nl_none o ho, colon_none o ho hs, List.append_nil,
       allQuiet_cons, allQuiet_append, allQuiet_nil, and_true]
     quiet_split
 theorem printElems_quiet : ∀ (xs : List Json) (d : Nat), AllQuiet (HasSpaceInList xs) (printElems o d xs)
@@ -249,7 +251,7 @@ theorem printElems_quiet : ∀ (xs : List Json) (d : Nat), AllQuiet (HasSpaceInL
   | x :: xs, d => by
     have h1 := allQuiet_mono (printWith_quiet x d) (Q := HasSpaceInList (x :: xs)) Or.inl
     have h2 := allQuiet_mono (printElems_quiet xs d) (Q := HasSpaceInList (x :: xs)) Or.inr
-    simp only [printElems, nl_none o ho, allQuiet_cons, allQuiet_append]
+    simp only [printElems, sep_none o ho hs, allQuiet_cons, allQuiet_append]
     quiet_split
 theorem printMembers_quiet : ∀ (kvs : List (String × Json)) (d : Nat),
     AllQuiet (HasSpaceInFields kvs) (printMembers o d kvs)
@@ -260,7 +262,7 @@ theorem printMembers_quiet : ∀ (kvs : List (String × Json)) (d : Nat),
       (fun h => Or.inr (Or.inl h))
     have h3 := allQuiet_mono (printMembers_quiet kvs d) (Q := HasSpaceInFields ((k, v) :: kvs))
       (fun h => Or.inr (Or.inr h))
-    simp only [printMembers, nl_none o ho, colon_none o ho, allQuiet_cons,
+    simp only [printMembers, sep_none o ho hs, colon_none o ho hs, allQuiet_cons,
       allQuiet_append, allQuiet_nil, and_true]
 
     quiet_split
@@ -269,12 +271,12 @@ end
 
 /-- **Compact output**: no tab, LF or CR byte, and a space only inside a string
 that has one, for every compact option set (with or without `ensureAscii`). -/
-theorem print_compact (o : PrintOpts) (ho : o.indent = none) (v : Json) :
+theorem print_compact (o : PrintOpts) (ho : o.indent = none) (hs : o.spaced = false) (v : Json) :
     (9 : UInt8) ∉ printWith o 0 v ∧ (10 : UInt8) ∉ printWith o 0 v ∧ (13 : UInt8) ∉ printWith o 0 v ∧
       ((32 : UInt8) ∈ printWith o 0 v → HasSpaceInString v) :=
-  ⟨fun h => (printWith_quiet o ho v 0 _ h).1 rfl, fun h => (printWith_quiet o ho v 0 _ h).2.1 rfl,
-   fun h => (printWith_quiet o ho v 0 _ h).2.2.1 rfl, fun h => (printWith_quiet o ho v 0 _ h).2.2.2 rfl⟩
+  ⟨fun h => (printWith_quiet o ho hs v 0 _ h).1 rfl, fun h => (printWith_quiet o ho hs v 0 _ h).2.1 rfl,
+   fun h => (printWith_quiet o ho hs v 0 _ h).2.2.1 rfl, fun h => (printWith_quiet o ho hs v 0 _ h).2.2.2 rfl⟩
 
-theorem print_compact_spec : Compact printBytes := print_compact {} rfl
+theorem print_compact_spec : Compact printBytes := print_compact {} rfl rfl
 
 end LeanJson

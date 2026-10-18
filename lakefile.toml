@@ -33,3 +33,8 @@ root = "examples.Quickstart"
 [[lean_exe]]
 name = "wide"
 root = "tests.Wide"
+
+# Native memory/time benchmark: `lake exe bench [flat|keys|strings] [mb]`.
+[[lean_exe]]
+name = "bench"
+root = "tests.Bench"

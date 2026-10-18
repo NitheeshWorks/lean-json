@@ -123,10 +123,17 @@ def PrintOpts.nl (o : PrintOpts) (d : Nat) : List UInt8 :=
   | none => []
   | some k => 10 :: List.replicate (k * d) 32
 
-/-- The key/value separator: `:` compact, `: ` pretty. -/
+/-- What follows a `,`: a line break and indentation when pretty, a space
+under `spaced`, else nothing. -/
+def PrintOpts.sep (o : PrintOpts) (d : Nat) : List UInt8 :=
+  match o.indent with
+  | none => if o.spaced then [32] else []
+  | some k => 10 :: List.replicate (k * d) 32
+
+/-- The key/value separator: `:` compact, `: ` pretty or `spaced`. -/
 def PrintOpts.colon (o : PrintOpts) : List UInt8 :=
   match o.indent with
-  | none => [58]
+  | none => if o.spaced then [58, 32] else [58]
   | some _ => [58, 32]
 
 mutual
@@ -137,22 +144,22 @@ def printWith (o : PrintOpts) (d : Nat) : Json → List UInt8
   | .bool false => litFalse
   | .num n => printNumberIn o n
   | .str s => printString o.ensureAscii s
-  | .arr [] => [91, 93]
-  | .arr (x :: xs) =>
+  | .arr ⟨[]⟩ => [91, 93]
+  | .arr ⟨x :: xs⟩ =>
     91 :: o.nl (d + 1) ++ printWith o (d + 1) x ++ printElems o (d + 1) xs ++ o.nl d ++ [93]
-  | .obj [] => [123, 125]
-  | .obj ((k, v) :: kvs) =>
+  | .obj ⟨[]⟩ => [123, 125]
+  | .obj ⟨(k, v) :: kvs⟩ =>
     123 :: o.nl (d + 1) ++ printString o.ensureAscii k ++ o.colon ++ printWith o (d + 1) v ++
       printMembers o (d + 1) kvs ++ o.nl d ++ [125]
 /-- The array elements after the first, each preceded by `,`. -/
 def printElems (o : PrintOpts) (d : Nat) : List Json → List UInt8
   | [] => []
-  | x :: xs => 44 :: o.nl d ++ printWith o d x ++ printElems o d xs
+  | x :: xs => 44 :: o.sep d ++ printWith o d x ++ printElems o d xs
 /-- The object members after the first, each preceded by `,`. -/
 def printMembers (o : PrintOpts) (d : Nat) : List (String × Json) → List UInt8
   | [] => []
   | (k, v) :: kvs =>
-    44 :: o.nl d ++ printString o.ensureAscii k ++ o.colon ++ printWith o d v ++ printMembers o d kvs
+    44 :: o.sep d ++ printString o.ensureAscii k ++ o.colon ++ printWith o d v ++ printMembers o d kvs
 end
 
 /-- The compact printing of `v`: what `to_json(v)` returns. -/

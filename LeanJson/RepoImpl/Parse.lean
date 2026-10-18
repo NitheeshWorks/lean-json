@@ -50,7 +50,7 @@ def Step.cast {bs : ByteArray} {p q : Nat} {α β : Type} (s : Step bs q α) (f 
 theorem skipWs_ge (bs : ByteArray) (pos : Nat) : pos ≤ skipWs bs pos := (skipWs_adv bs pos).1
 
 theorem numStep {cfg : ParseCfg} {bs : ByteArray} {q : Nat} :
-    ∀ x, (parseNumber cfg bs q).map (fun y => (Json.num y.1, y.2)) = .ok x → Adv bs q x.2 ∧ q < x.2 := by
+    ∀ x, (parseNumber cfg bs q).map (fun y => (Json.ofNumber y.1, y.2)) = .ok x → Adv bs q x.2 ∧ q < x.2 := by
   intro x h
   cases hn : parseNumber cfg bs q with
   | error e => rw [hn] at h; cases h
@@ -82,15 +82,15 @@ def parseValueWith (cfg : ParseCfg) (bs : ByteArray) (depth pos : Nat) :
       let p := skipWs bs (q + 1)
       have hp : q + 1 ≤ p := skipWs_ge bs (q + 1)
       if hps : p < bs.size then
-        if bs[p] == 93 then .ok ⟨.arr [], p + 1, by omega, by omega⟩
-        else parseElems cfg bs (depth + 1) pos p (by omega) []
+        if bs[p] == 93 then .ok ⟨.arr #[], p + 1, by omega, by omega⟩
+        else parseElems cfg bs (depth + 1) pos p (by omega) #[]
       else .error ⟨.eofWhileParsingList, p⟩
     else if b == 123 then
       let p := skipWs bs (q + 1)
       have hp : q + 1 ≤ p := skipWs_ge bs (q + 1)
       if hps : p < bs.size then
-        if bs[p] == 125 then .ok ⟨.obj [], p + 1, by omega, by omega⟩
-        else if bs[p] == 34 then parseMembers cfg bs (depth + 1) pos p (by omega) []
+        if bs[p] == 125 then .ok ⟨.obj #[], p + 1, by omega, by omega⟩
+        else if bs[p] == 34 then parseMembers cfg bs (depth + 1) pos p (by omega) .empty
         else .error ⟨.keyMustBeAString, p⟩
       else .error ⟨.eofWhileParsingObject, p⟩
     else if b == 116 then
@@ -114,10 +114,10 @@ decreasing_by
     simp only [q, p] at hq hqs hp hps ⊢
     omega
 /-- Array elements from `pos` (an element is due, inside `depth` containers);
-`acc` holds the elements so far, reversed; the array opened at or before
+`acc` holds the elements so far; the array opened at or before
 `start`. A tail-recursive loop, so a wide array uses constant stack. -/
 def parseElems (cfg : ParseCfg) (bs : ByteArray) (depth start pos : Nat) (hsp : start ≤ pos)
-    (acc : List Json) : Except ParseErr (Step bs start Json) :=
+    (acc : Array Json) : Except ParseErr (Step bs start Json) :=
   match parseValueWith cfg bs depth pos with
   | .error e => .error e
   | .ok s =>
@@ -129,8 +129,8 @@ def parseElems (cfg : ParseCfg) (bs : ByteArray) (depth start pos : Nat) (hsp : 
         let q := skipWs bs (p + 1)
         have hq : p + 1 ≤ q := skipWs_ge bs (p + 1)
         if bs[q]? == some 93 then .error ⟨.trailingComma, q⟩
-        else parseElems cfg bs depth start q (by omega) (s.val :: acc)
-      else if bs[p] == 93 then .ok ⟨.arr (s.val :: acc).reverse, p + 1, by omega, by omega⟩
+        else parseElems cfg bs depth start q (by omega) (acc.push s.val)
+      else if bs[p] == 93 then .ok ⟨.arr (acc.push s.val), p + 1, by omega, by omega⟩
       else .error ⟨.expectedListCommaOrEnd, p⟩
     else .error ⟨.eofWhileParsingList, p⟩
 termination_by (bs.size - pos, 1)
@@ -140,10 +140,10 @@ decreasing_by
   · simp only [p, q] at hp hq hs hps ⊢
     omega
 /-- Object members from `pos` (which holds the opening quote of a key), inside
-`depth` containers; `acc` holds the members so far, reversed; the object
+`depth` containers; `acc` holds the members so far; the object
 opened at or before `start`. Tail-recursive. -/
 def parseMembers (cfg : ParseCfg) (bs : ByteArray) (depth start pos : Nat) (hsp : start ≤ pos)
-    (acc : List (String × Json)) : Except ParseErr (Step bs start Json) :=
+    (acc : Fields) : Except ParseErr (Step bs start Json) :=
   match Step.lift (parseString bs pos) (fun _ h => parseString_adv h) with
   | .error e => .error e
   | .ok k =>
@@ -163,12 +163,13 @@ def parseMembers (cfg : ParseCfg) (bs : ByteArray) (depth start pos : Nat) (hsp 
               let q := skipWs bs (p3 + 1)
               have hq : p3 + 1 ≤ q := skipWs_ge bs (p3 + 1)
               if hqs : q < bs.size then
-                if bs[q] == 34 then parseMembers cfg bs depth start q (by omega) ((k.val, s.val) :: acc)
+                if bs[q] == 34 then parseMembers cfg bs depth start q (by omega)
+                  (acc.add cfg.dedupKeys k.val s.val)
                 else if bs[q] == 125 then .error ⟨.trailingComma, q⟩
                 else .error ⟨.keyMustBeAString, q⟩
               else .error ⟨.eofWhileParsingValue, q⟩
             else if bs[p3] == 125 then
-              .ok ⟨.obj ((k.val, s.val) :: acc).reverse, p3 + 1, by omega, by omega⟩
+              .ok ⟨.obj (acc.add cfg.dedupKeys k.val s.val).1, p3 + 1, by omega, by omega⟩
             else .error ⟨.expectedObjectCommaOrEnd, p3⟩
           else .error ⟨.eofWhileParsingObject, p3⟩
       else .error ⟨.expectedColon, p⟩

@@ -53,18 +53,19 @@ def Number.isFinite : Number → Bool
   | .int _ | .float _ => true
   | _ => false
 
-/-- A JSON value (RFC 8259). Arrays are lists; objects are association lists
-in document order, duplicates kept, exactly as jiter's `JsonValue` keeps
-them. Lookup (`Json.getObjVal?`) is last-wins, like a Python `dict` built
-from the pairs; `Json.dedupKeys` gives the `dict` itself. There is no NaN
-and no infinity: they are not JSON, and the type cannot hold them. -/
+/-- A JSON value (RFC 8259, plus the non-finite numbers of the lenient mode).
+Arrays are `Array`s (one pointer per element, as a Python `list`); objects
+are arrays of members in document order. `from_json` collapses duplicate keys
+as a Python `dict` does (first position, last value; `ParseCfg.dedupKeys`);
+with that off they are kept, as jiter's `JsonValue` keeps them, and lookup
+(`Json.getObjVal?`, `j["key"]?`) is last-wins. -/
 inductive Json where
   | null
   | bool (b : Bool)
   | num (n : Number)
   | str (s : String)
-  | arr (elems : List Json)
-  | obj (fields : List (String × Json))
+  | arr (elems : Array Json)
+  | obj (fields : Array (String × Json))
   deriving Inhabited
 
 mutual
@@ -78,11 +79,11 @@ def Json.decEq : (a b : Json) → Decidable (a = b)
     if h : a = b then isTrue (h ▸ rfl) else isFalse (fun e => by cases e; exact h rfl)
   | .str a, .str b =>
     if h : a = b then isTrue (h ▸ rfl) else isFalse (fun e => by cases e; exact h rfl)
-  | .arr a, .arr b =>
+  | .arr ⟨a⟩, .arr ⟨b⟩ =>
     match Json.decEqList a b with
     | isTrue h => isTrue (h ▸ rfl)
     | isFalse h => isFalse (fun e => by cases e; exact h rfl)
-  | .obj a, .obj b =>
+  | .obj ⟨a⟩, .obj ⟨b⟩ =>
     match Json.decEqFields a b with
     | isTrue h => isTrue (h ▸ rfl)
     | isFalse h => isFalse (fun e => by cases e; exact h rfl)
@@ -217,6 +218,10 @@ structure PrintOpts where
   ensureAscii : Bool := false
   /-- How NaN and the infinities print (pydantic-core's `inf_nan_mode`). -/
   infNan : InfNanMode := .constants
+  /-- Python `json.dumps` separators, `", "` and `": "`, in the one-line
+  layout (`indent = none`); the pretty layout already uses `": "` and puts a
+  newline after `,`. Off by default (`to_json` prints `,` and `:`). -/
+  spaced : Bool := false
   deriving DecidableEq, Repr, Inhabited
 
 end LeanJson

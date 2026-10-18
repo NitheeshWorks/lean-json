@@ -7,9 +7,10 @@ import Lean.Data.Json.Printer
 # RepoImpl: accessors, dict semantics, `Lean.Json` and `Float` bridges
 
 What a consumer (lean-pydantic, lean-httpx) needs beyond parse and print:
-typed getters, last-wins key lookup and Python-`dict` deduplication (jiter
-keeps duplicate keys; a `dict` built from them keeps the first position and
-the last value), conversions to and from core `Lean.Json`, and the
+typed getters and indexing, last-wins key lookup and Python-`dict`
+deduplication (the parser collapses repeated keys by default, as the `dict`
+`from_json` returns does: first position, last value; `dedupKeys := false`
+keeps them all), conversions to and from core `Lean.Json`, and the
 `Float` bridge (`Number.toFloat`, `Number.ofFloat?`).
 -/
 
@@ -27,7 +28,7 @@ instance : OfNat Json n := ⟨Json.num (.int n)⟩
 def ofInt (i : Int) : Json := .num (.int i)
 
 /-- An object from its members, in order. -/
-def mkObj (kvs : List (String × Json)) : Json := .obj kvs
+def mkObj (kvs : List (String × Json)) : Json := .obj kvs.toArray
 
 def isNull : Json → Bool
   | .null => true
@@ -51,11 +52,11 @@ def getInt? : Json → Option Int
   | .num (.int i) => some i
   | _ => none
 
-def getArr? : Json → Option (List Json)
+def getArr? : Json → Option (Array Json)
   | .arr xs => some xs
   | _ => none
 
-def getObj? : Json → Option (List (String × Json))
+def getObj? : Json → Option (Array (String × Json))
   | .obj kvs => some kvs
   | _ => none
 
@@ -71,7 +72,7 @@ def lookupLast (k : String) : List (String × Json) → Option Json
 /-- Member `k` of an object, last occurrence winning. -/
 def getObjVal? (v : Json) (k : String) : Option Json :=
   match v with
-  | .obj kvs => lookupLast k kvs
+  | .obj kvs => kvs.findSomeRev? (fun kv => if kv.1 = k then some kv.2 else none)
   | _ => none
 
 /-- Element `i` of an array. -/
@@ -79,6 +80,37 @@ def getArrVal? (v : Json) (i : Nat) : Option Json :=
   match v with
   | .arr xs => xs[i]?
   | _ => none
+
+/-! ### Indexing: `data["name"]?`, `data[i]?`
+
+As Python's `data["name"]` and `data[i]`, with the missing case an `Option`
+instead of a `KeyError`/`IndexError`. `data["name"]!` panics when it is
+missing; `data["name"]'h` takes a proof that it is present. Chains read as in
+Python: `data["user"]?["tags"]?[0]?`. -/
+
+instance : GetElem Json String Json (fun j k => (j.getObjVal? k).isSome) where
+  getElem j k h := (j.getObjVal? k).get h
+
+instance : GetElem? Json String Json (fun j k => (j.getObjVal? k).isSome) where
+  getElem? j k := j.getObjVal? k
+
+instance : GetElem Json Nat Json (fun j i => (j.getArrVal? i).isSome) where
+  getElem j i h := (j.getArrVal? i).get h
+
+instance : GetElem? Json Nat Json (fun j i => (j.getArrVal? i).isSome) where
+  getElem? j i := j.getArrVal? i
+
+instance : GetElem (Option Json) String Json (fun o k => (o.bind (·.getObjVal? k)).isSome) where
+  getElem o k h := (o.bind (·.getObjVal? k)).get h
+
+instance : GetElem? (Option Json) String Json (fun o k => (o.bind (·.getObjVal? k)).isSome) where
+  getElem? o k := o.bind (·.getObjVal? k)
+
+instance : GetElem (Option Json) Nat Json (fun o i => (o.bind (·.getArrVal? i)).isSome) where
+  getElem o i h := (o.bind (·.getArrVal? i)).get h
+
+instance : GetElem? (Option Json) Nat Json (fun o i => (o.bind (·.getArrVal? i)).isSome) where
+  getElem? o i := o.bind (·.getArrVal? i)
 
 /-- Insert into an association list with `dict` semantics: an existing key
 keeps its position and takes the new value. -/
@@ -88,15 +120,21 @@ def insertLast (k : String) (v : Json) : List (String × Json) → List (String 
 
 /-- The members as a Python `dict` would hold them: one entry per key, at the
 key's first position, with its last value. -/
-def dedupKeys (kvs : List (String × Json)) : List (String × Json) :=
+def dedupKeysList (kvs : List (String × Json)) : List (String × Json) :=
   kvs.foldl (fun acc kv => insertLast kv.1 kv.2 acc) []
+
+/-- `dedupKeysList` on an array, in time linear in the members (a hash index
+of first positions): what the parser does as it reads an object
+(`ParseCfg.dedupKeys`, on by default). -/
+def dedupKeys (kvs : Array (String × Json)) : Array (String × Json) :=
+  (kvs.foldl (fun st kv => st.add true kv.1 kv.2) Fields.empty).1
 
 mutual
 /-- Every number in `j` is finite (no `NaN` or infinity): `j` is RFC 8259 JSON. -/
 def allFinite : Json → Bool
   | .num n => n.isFinite
-  | .arr xs => allFiniteList xs
-  | .obj kvs => allFiniteFields kvs
+  | .arr ⟨xs⟩ => allFiniteList xs
+  | .obj ⟨kvs⟩ => allFiniteFields kvs
   | _ => true
 def allFiniteList : List Json → Bool
   | [] => true
@@ -111,8 +149,8 @@ mutual
 scalar or an empty container, one more than the deepest child otherwise.
 jiter (and `from_json`) accepts exactly the documents with `height ≤ 200`. -/
 def height : Json → Nat
-  | .arr (x :: xs) => 1 + max x.height (heightList xs)
-  | .obj ((_, v) :: kvs) => 1 + max v.height (heightFields kvs)
+  | .arr ⟨x :: xs⟩ => 1 + max x.height (heightList xs)
+  | .obj ⟨(_, v) :: kvs⟩ => 1 + max v.height (heightFields kvs)
   | _ => 0
 def heightList : List Json → Nat
   | [] => 0
@@ -230,8 +268,8 @@ def Json.toLean : Json → Lean.Json
     else if d.exp ≥ 0 then .num ⟨m * (10 ^ d.exp.toNat : Nat), 0⟩ else .num ⟨m, d.exp.natAbs⟩
   | .num _ => .null
   | .str s => .str s
-  | .arr xs => .arr (Json.toLeanList xs).toArray
-  | .obj kvs => Lean.Json.mkObj (Json.toLeanFields kvs)
+  | .arr ⟨xs⟩ => .arr (Json.toLeanList xs).toArray
+  | .obj ⟨kvs⟩ => Lean.Json.mkObj (Json.toLeanFields kvs)
 def Json.toLeanList : List Json → List Lean.Json
   | [] => []
   | x :: xs => x.toLean :: Json.toLeanList xs

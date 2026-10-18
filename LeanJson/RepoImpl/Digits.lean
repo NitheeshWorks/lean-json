@@ -76,7 +76,8 @@ def tzSearch (m : Nat) : (fuel lo hi : Nat) → Nat
       if m % 10 ^ mid = 0 then tzSearch m f mid hi else tzSearch m f lo mid
 
 /-- The number of trailing decimal zeros of a nonzero `m`. -/
-def trailingZeros (m : Nat) : Nat := tzSearch m (m.log2 + 2) 0 (m.log2 + 1)
+def trailingZeros (m : Nat) : Nat :=
+  if m % 10 = 0 then tzSearch m (m.log2 + 2) 0 (m.log2 + 1) else 0
 
 theorem tzSearch_spec (m : Nat) : ∀ (f lo hi : Nat), m % 10 ^ lo = 0 → m % 10 ^ hi ≠ 0 → lo < hi →
     hi - lo ≤ f + 1 → m % 10 ^ tzSearch m f lo hi = 0 ∧ m % 10 ^ (tzSearch m f lo hi + 1) ≠ 0
@@ -103,8 +104,11 @@ theorem pow_ten_not_dvd (m : Nat) (hm : m ≠ 0) : m % 10 ^ (m.log2 + 1) ≠ 0 :
   rw [Nat.mod_eq_of_lt (by omega)]; exact hm
 
 theorem trailingZeros_spec (m : Nat) (hm : m ≠ 0) :
-    m % 10 ^ trailingZeros m = 0 ∧ m % 10 ^ (trailingZeros m + 1) ≠ 0 :=
-  tzSearch_spec m _ 0 _ (by simp [Nat.mod_one]) (pow_ten_not_dvd m hm) (by omega) (by omega)
+    m % 10 ^ trailingZeros m = 0 ∧ m % 10 ^ (trailingZeros m + 1) ≠ 0 := by
+  unfold trailingZeros
+  split
+  · exact tzSearch_spec m _ 0 _ (by simp [Nat.mod_one]) (pow_ten_not_dvd m hm) (by omega) (by omega)
+  · rename_i h; exact ⟨by simp [Nat.mod_one], by simpa using h⟩
 
 theorem div_pow_mod_ne (m k : Nat) (h1 : m % 10 ^ k = 0) (h2 : m % 10 ^ (k + 1) ≠ 0) :
     m / 10 ^ k % 10 ≠ 0 := by
