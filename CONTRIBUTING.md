@@ -155,12 +155,17 @@ returns integers 0 to 1023 from a shared table (`smallInts`, through
 `Json.ofNumber`, with `Json.ofNumber_eq : Json.ofNumber n = .num n`, so the
 proofs see `.num`). An object under construction is a `Fields` (the members
 and, when collapsing, a `KeyIndex` from key to position), dropped when the
-object closes. `KeyIndex` (`RepoImpl/KeyIndex.lean`) hashes keys under
-`keySeed`, a secret drawn once per process (an `initialize` declaration; in
-the logic an opaque constant, so every theorem holds for every seed), stores
-only positions, and sends keys whose slot is taken to a `Std.TreeMap`: crafted
-colliding keys cost `O(log n)` each, not `O(n)` (`lake exe bench collide`,
-keys from `lake exe collidegen`).
+object closes. `KeyIndex` (`RepoImpl/KeyIndex.lean`) hashes a key with
+`keyHash` (FNV-1a over its length and first 64 bytes) and mixes that into a
+slot under `keySeed`, a secret drawn once per process (an `initialize`
+declaration; in the logic an opaque constant, so every theorem holds for every
+seed). It stores only positions, and sends keys whose slot is taken to a
+`Std.TreeMap`: crafted colliding keys cost `O(log n)` each, not `O(n)`
+(`lake exe bench collide`, keys from `lake exe collidegen`; `bench
+collide-prefix`, keys of one length sharing 64 bytes, which share one
+`keyHash` whatever the seed). While parsing with `dedupKeys`, a plain ASCII key
+is hashed and compared straight from the input bytes (`keyHashBA_eq`,
+`addRun_eq`), and a `String` is built only for a key not seen before.
 
 ## Decisions following upstream
 

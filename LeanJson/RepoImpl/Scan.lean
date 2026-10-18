@@ -121,12 +121,21 @@ decreasing_by
   have h8 : (i + 8).toNat = i.toNat + 8 := usize_add_toNat (k := 8) (by decide) (by omega)
   omega
 
-/-- `findFrom` with machine indices and eight bytes per step: equal to it
-(`findFrom_eq_fast`), and what the compiler runs. -/
-@[inline] def findFast (p : UInt8 → Bool) (b : ByteArray) (i : Nat) : Nat :=
+/-- `findFrom` with machine indices and eight bytes per step. -/
+@[inline] def findLong (p : UInt8 → Bool) (b : ByteArray) (i : Nat) : Nat :=
   if hb : b.size < USize.size then
     if i < b.size then findBlocks p b hb (USize.ofNat i) else i
   else findFrom p b i
+
+/-- `findFrom` one byte at a time for up to `k` bytes (a short run ends
+there, before the block loop's set-up would pay off), then `findLong`. -/
+@[specialize] def findShort (p : UInt8 → Bool) (b : ByteArray) (i : Nat) : Nat → Nat
+  | 0 => findLong p b i
+  | k + 1 => if h : i < b.size then (if p b[i] then i else findShort p b (i + 1) k) else i
+
+/-- `findFrom` as the compiler runs it (`findFrom_eq_fast`): sixteen bytes
+one at a time, then eight per step with machine indices. -/
+@[inline] def findFast (p : UInt8 → Bool) (b : ByteArray) (i : Nat) : Nat := findShort p b i 16
 
 theorem toUInt8_eq_zero {x : Bool} (h : x.toUInt8 = 0) : x = false := by
   cases x
@@ -165,9 +174,8 @@ decreasing_by
   have h8 : (i + 8).toNat = i.toNat + 8 := usize_add_toNat (k := 8) (by decide) (by omega)
   omega
 
-@[csimp] theorem findFrom_eq_fast : @findFrom = @findFast := by
-  funext p b i
-  unfold findFast
+theorem findLong_eq (p : UInt8 → Bool) (b : ByteArray) (i : Nat) : findLong p b i = findFrom p b i := by
+  unfold findLong
   split
   · rename_i hb
     split
@@ -176,5 +184,19 @@ decreasing_by
     · rename_i hi
       rw [findFrom, dite_eq_right hi]
   · rfl
+
+theorem findShort_eq (p : UInt8 → Bool) (b : ByteArray) : ∀ k i, findShort p b i k = findFrom p b i
+  | 0, i => findLong_eq p b i
+  | k + 1, i => by
+    rw [findShort, findFrom]
+    split
+    · split
+      · rfl
+      · exact findShort_eq p b k (i + 1)
+    · rfl
+
+@[csimp] theorem findFrom_eq_fast : @findFrom = @findFast := by
+  funext p b i
+  exact (findShort_eq p b 16 i).symm
 
 end LeanJson

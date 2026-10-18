@@ -42,6 +42,8 @@ process-wide.
   written `mb` times over (so later passes repeat earlier keys). The key
   index must stay fast on them (`KeyIndex`). `collide-naive` inserts the same
   keys into a plain `Std.HashMap String Nat`, to show the attack is real.
+  `collide-prefix` does the same with 10000 keys of one length sharing their
+  first 64 bytes, which share one `keyHash` whatever the seed.
 * `e2e`: the `flat` input as a server handles a request body: text in,
   `from_json`, `to_json` out (bound: 12 × input + 32 MB).
 * `longkeys`: 20000 keys of 1000 characters (20 MB).
@@ -159,6 +161,13 @@ def collideKeys : IO (Array String) := do
   let s ← IO.FS.readFile "tests/fixtures/collide-keys.txt"
   return (s.splitOn "\n").filter (· ≠ "") |>.toArray
 
+/-- 10000 keys of one length that share their first 64 bytes, so they all
+have one `keyHash` (a full collision no seed separates): every key after the
+first goes to the index's search tree. -/
+def prefixKeys : Array String :=
+  (List.range 10000).toArray.map fun i =>
+    String.ofList (List.replicate 64 'p') ++ String.ofList (List.replicate (5 - (toString i).length) '0') ++ toString i
+
 /-- The colliding keys as one object, written `passes` times over. -/
 def collideObject (keys : Array String) (passes : Nat) : ByteArray := Id.run do
   let mut b := ByteArray.emptyWithCapacity (passes * keys.size * 16 + 2)
@@ -235,13 +244,14 @@ def main (args : List String) : IO UInt32 := do
   let maxMs := (args.drop 2).head?.bind String.toNat?
   if kind == "e2e" then return ← endToEnd mb
   if kind == "collide-naive" then return ← collideNaive mb
-  let keys ← if kind == "collide" then collideKeys else pure #[]
+  let keys ← if kind == "collide" then collideKeys
+    else if kind == "collide-prefix" then pure prefixKeys else pure #[]
   let input := match kind with
     | "keys" => repeatedKeys mb
     | "strings" => strings mb
     | "wide" => wideKeys mb
     | "dups" => wideKeys mb 1000
-    | "collide" => collideObject keys mb
+    | "collide" | "collide-prefix" => collideObject keys mb
     | "longkeys" => longKeys ()
     | "escapes" => escapeString mb "\\n"
     | "surrogates" => escapeString mb "\\ud83d\\ude00"
@@ -256,7 +266,7 @@ def main (args : List String) : IO UInt32 := do
     let out := (print v.val).val.size
     let added := (peak - base) * 1024
     let bound := (if kind == "flat" then 12 else if kind == "wide" then 10 else 8) * input.size + 32 * 1000000
-    if kind == "collide" then
+    if kind == "collide" || kind == "collide-prefix" then
       match v.val with
       | .obj kvs =>
         if kvs.size != keys.size then
