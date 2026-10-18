@@ -7,6 +7,7 @@ import LeanJson.Proofs.Progress
 import LeanJson.Proofs.Fuel
 import LeanJson.Proofs.Codec
 import LeanJson.Proofs.Compact
+import LeanJson.Proofs.Builder
 import LeanJson.Proofs.Verified
 
 /-!

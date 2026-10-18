@@ -1,4 +1,5 @@
 import LeanJson.RepoImpl.Parse
+import LeanJson.RepoImpl.Builder
 import Lean.Data.Json.Basic
 import Lean.Data.Json.Printer
 
@@ -209,7 +210,7 @@ def Json.ofLean (j : Lean.Json) : Json :=
 
 /-- The compact printing as a `String`. -/
 def Json.compress (v : Json) : String :=
-  (String.fromUTF8? (printBytes v).toByteArray).getD ""
+  (String.fromUTF8? (printBA {} v)).getD ""
 
 
 instance : ToString Json := ⟨Json.compress⟩

@@ -1,4 +1,5 @@
 import LeanJson.Proofs.Compact
+import LeanJson.Proofs.Builder
 import LeanJson.RepoImpl.Notation
 
 /-!
@@ -81,9 +82,11 @@ theorem printed (o : PrintOpts) (v : Json) : Printed o v (printWith o 0 v).toByt
   roundTripDefault h := parse_print v o h
   compact ho := by simpa using print_compact o ho v
 
-/-- Print a value. The default options give the compact form. -/
+/-- Print a value. The default options give the compact form. Built byte
+by byte (`printBA`, linear in the output), proved equal to the specification
+`printWith`. -/
 def print (v : Json) (o : PrintOpts := {}) : {b : ByteArray // Printed o v b} :=
-  ⟨(printWith o 0 v).toByteArray, printed o v⟩
+  ⟨printBA o v, printBA_eq o v ▸ printed o v⟩
 
 /-- `to_json(value, indent=None, ensure_ascii=False)`: serialise any value
 that converts to JSON. -/

@@ -19,9 +19,26 @@ def natDigitsAux : (fuel n : Nat) → List Nat → List Nat
   | 0, _, acc => acc
   | f + 1, n, acc => if n < 10 then n :: acc else natDigitsAux f (n / 10) (n % 10 :: acc)
 
+/-- Big-endian decimal digits of a small `n`, one division per digit. -/
+def smallDigits (n : Nat) : List Nat := natDigitsAux (n + 1) n []
+
+/-- Left-pad with zeros to length `h`. -/
+def padDigits (h : Nat) (l : List Nat) : List Nat := List.replicate (h - l.length) 0 ++ l
+
+/-- Big-endian decimal digits by divide and conquer: split off the low `h`
+digits (about half) with one big division, so a long number costs a few big
+divisions rather than one per digit. Correct for any `fuel`. -/
+def digitsDC : (fuel n : Nat) → List Nat
+  | 0, n => smallDigits n
+  | f + 1, n =>
+    if n < 10 ^ 18 then smallDigits n
+    else
+      let h := n.log2 * 3 / 20
+      digitsDC f (n / 10 ^ h) ++ padDigits h (digitsDC f (n % 10 ^ h))
+
 /-- Big-endian decimal digits of `n`; `[0]` for zero, otherwise no leading
 zero. -/
-def natDigits (n : Nat) : List Nat := natDigitsAux (n + 1) n []
+def natDigits (n : Nat) : List Nat := digitsDC 64 n
 
 /-- The ASCII byte of a decimal digit. -/
 def digitByte (d : Nat) : UInt8 := UInt8.ofNat (48 + d)

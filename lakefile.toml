@@ -18,3 +18,8 @@ root = "tests.Props"
 [[lean_exe]]
 name = "conformance"
 root = "tests.Conformance"
+
+# Performance smoke test (not part of the gate): `lake exe perf`.
+[[lean_exe]]
+name = "perf"
+root = "tests.Perf"
