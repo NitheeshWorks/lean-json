@@ -1,5 +1,6 @@
 import LeanJson.Proofs.Compact
 import LeanJson.Proofs.Builder
+import LeanJson.Proofs.Partial
 import LeanJson.RepoImpl.Notation
 
 /-!
@@ -11,6 +12,8 @@ aliases), each returning its value together with the proved guarantees:
 | pydantic-core                         | here                                          |
 |---------------------------------------|-----------------------------------------------|
 | `from_json(data)`                     | `from_json data` (`String` or `ByteArray`)    |
+| `from_json(data, allow_partial=True)` | `from_json data (allow_partial := true)`      |
+| `allow_partial='trailing-strings'`    | `(allow_partial := .trailingStrings)`         |
 | `to_json(value)`                      | `to_json value` (any `IntoJson` value)        |
 | `to_json(value, indent=2)`            | `to_json value (indent := some 2)`            |
 | `to_json(value, ensure_ascii=True)`   | `to_json value (ensure_ascii := true)`        |
@@ -54,16 +57,39 @@ whitespace, one value, optional whitespace, end of input; `NaN`, `Infinity`
 and `-Infinity` accepted. -/
 def parse (bs : ByteArray) : Except JsonError {v : Json // Parsed bs v} := parseWith {} bs
 
-/-- `from_json(data, allow_inf_nan=True)`: parse JSON text or bytes. With
-`allow_inf_nan := false`, `NaN` and the infinities are rejected, as strict
-RFC 8259 JSON. -/
-def from_json {α : Type} [JsonInput α] (data : α) (allow_inf_nan : Bool := true) :
-    Except JsonError {v : Json // ParsedWith { allowInfNan := allow_inf_nan } (JsonInput.toBytes data) v} :=
-  parseWith { allowInfNan := allow_inf_nan } (JsonInput.toBytes data)
+theorem parsedPartial_of_ref {cfg : ParseCfg} {mode : PartialMode} {bs : ByteArray} {v : Json}
+    (h : parsePartialWith cfg mode bs = .ok v) : ParsedPartial cfg mode bs v where
+  ref := h
+  complete w hw := by
+    have := parsePartialWith_complete cfg mode hw
+    rw [h] at this; cases this; rfl
+
+/-- Parse JSON that may be cut off (`allow_partial`; see
+`RepoImpl/Partial.lean`): containers end where the input does. -/
+def parsePartial (cfg : ParseCfg) (mode : PartialMode) (bs : ByteArray) :
+    Except JsonError {v : Json // ParsedPartial cfg mode bs v} :=
+  match h : parsePartialWith cfg mode bs with
+  | .ok v => .ok ⟨v, parsedPartial_of_ref h⟩
+  | .error e => .error (e.toJsonError bs)
+
+/-- `from_json(data, allow_inf_nan=True, allow_partial=False)`: parse JSON
+text or bytes. With `allow_inf_nan := false`, `NaN` and the infinities are
+rejected, as strict RFC 8259 JSON. With `allow_partial := true` (or
+`.trailingStrings`), input that is cut off is read as far as it goes, as
+jiter's partial mode does (`RepoImpl/Partial.lean`); on a complete document
+the result is the same (`ParsedPartial.complete`). -/
+def from_json {α : Type} [JsonInput α] (data : α) (allow_inf_nan : Bool := true)
+    (allow_partial : PartialMode := .off) :
+    Except JsonError {v : Json // FromJson { allowInfNan := allow_inf_nan } allow_partial (JsonInput.toBytes data) v} :=
+  match allow_partial with
+  | .off => parseWith { allowInfNan := allow_inf_nan } (JsonInput.toBytes data)
+  | .on => parsePartial { allowInfNan := allow_inf_nan } .on (JsonInput.toBytes data)
+  | .trailingStrings => parsePartial { allowInfNan := allow_inf_nan } .trailingStrings (JsonInput.toBytes data)
 
 /-- `from_json`, Lean-cased. -/
-abbrev fromJson {α : Type} [JsonInput α] (data : α) (allow_inf_nan : Bool := true) :=
-  from_json data allow_inf_nan
+abbrev fromJson {α : Type} [JsonInput α] (data : α) (allow_inf_nan : Bool := true)
+    (allow_partial : PartialMode := .off) :=
+  from_json data allow_inf_nan allow_partial
 
 /-- `parse` on the UTF-8 bytes of a string. -/
 def parseStr (s : String) : Except JsonError {v : Json // Parsed s.toUTF8 v} :=

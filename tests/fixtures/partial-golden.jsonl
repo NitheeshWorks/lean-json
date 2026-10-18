@@ -1,0 +1,228 @@
+{"input": "[\"aa\", \"bb\", \"c", "mode": "on", "ok": "[\"aa\", \"bb\"]"}
+{"input": "[\"aa\", \"bb\", \"c", "mode": "trailing-strings", "ok": "[\"aa\", \"bb\", \"c\"]"}
+{"input": "{\"breed\": \"lab\", \"name\": \"fluffy\", \"friends\": [\"buddy\", \"spot\", \"rufus\"], \"age", "mode": "on", "ok": "{\"breed\": \"lab\", \"name\": \"fluffy\", \"friends\": [\"buddy\", \"spot\", \"rufus\"]}"}
+{"input": "{\"breed\": \"lab\", \"name\": \"fluffy\", \"friends\": [\"buddy\", \"spot\", \"rufus\"], \"age", "mode": "trailing-strings", "ok": "{\"breed\": \"lab\", \"name\": \"fluffy\", \"friends\": [\"buddy\", \"spot\", \"rufus\"]}"}
+{"input": "{\"foo\": \"x\", \"bar\": [\"world\",", "mode": "on", "ok": "{\"foo\": \"x\", \"bar\": [\"world\"]}"}
+{"input": "{\"foo\": \"x\", \"bar\": [\"world\",", "mode": "trailing-strings", "ok": "{\"foo\": \"x\", \"bar\": [\"world\"]}"}
+{"input": "{\"foo\": \"x\", \"bar\": [\"world\", 1], \"nested\": {\"x\":", "mode": "on", "ok": "{\"foo\": \"x\", \"bar\": [\"world\", 1], \"nested\": {}}"}
+{"input": "{\"foo\": \"x\", \"bar\": [\"world\", 1], \"nested\": {\"x\":", "mode": "trailing-strings", "ok": "{\"foo\": \"x\", \"bar\": [\"world\", 1], \"nested\": {}}"}
+{"input": "[1", "mode": "on", "ok": "[1]"}
+{"input": "[1", "mode": "trailing-strings", "ok": "[1]"}
+{"input": "[1.", "mode": "on", "ok": "[]"}
+{"input": "[1.", "mode": "trailing-strings", "ok": "[]"}
+{"input": "[1e", "mode": "on", "ok": "[]"}
+{"input": "[1e", "mode": "trailing-strings", "ok": "[]"}
+{"input": "[-", "mode": "on", "ok": "[]"}
+{"input": "[-", "mode": "trailing-strings", "ok": "[]"}
+{"input": "[12", "mode": "on", "ok": "[12]"}
+{"input": "[12", "mode": "trailing-strings", "ok": "[12]"}
+{"input": "[1.5", "mode": "on", "ok": "[1.5]"}
+{"input": "[1.5", "mode": "trailing-strings", "ok": "[1.5]"}
+{"input": "[tru", "mode": "on", "ok": "[]"}
+{"input": "[tru", "mode": "trailing-strings", "ok": "[]"}
+{"input": "[true", "mode": "on", "ok": "[true]"}
+{"input": "[true", "mode": "trailing-strings", "ok": "[true]"}
+{"input": "[nul", "mode": "on", "ok": "[]"}
+{"input": "[nul", "mode": "trailing-strings", "ok": "[]"}
+{"input": "[N", "mode": "on", "ok": "[]"}
+{"input": "[N", "mode": "trailing-strings", "ok": "[]"}
+{"input": "[Infinity", "mode": "on", "ok": "[Infinity]"}
+{"input": "[Infinity", "mode": "trailing-strings", "ok": "[Infinity]"}
+{"input": "[Inf", "mode": "on", "ok": "[]"}
+{"input": "[Inf", "mode": "trailing-strings", "ok": "[]"}
+{"input": "[NaN", "mode": "on", "ok": "[NaN]"}
+{"input": "[NaN", "mode": "trailing-strings", "ok": "[NaN]"}
+{"input": "[-Inf", "mode": "on", "ok": "[]"}
+{"input": "[-Inf", "mode": "trailing-strings", "ok": "[]"}
+{"input": "[-1", "mode": "on", "ok": "[-1]"}
+{"input": "[-1", "mode": "trailing-strings", "ok": "[-1]"}
+{"input": "[1e5", "mode": "on", "ok": "[100000.0]"}
+{"input": "[1e5", "mode": "trailing-strings", "ok": "[100000.0]"}
+{"input": "[1E+", "mode": "on", "ok": "[]"}
+{"input": "[1E+", "mode": "trailing-strings", "ok": "[]"}
+{"input": "[100000000000000000000000000000", "mode": "on", "ok": "[100000000000000000000000000000]"}
+{"input": "[100000000000000000000000000000", "mode": "trailing-strings", "ok": "[100000000000000000000000000000]"}
+{"input": "1", "mode": "on", "ok": "1"}
+{"input": "1", "mode": "trailing-strings", "ok": "1"}
+{"input": "1.", "mode": "on", "error": "EOF while parsing a value at line 1 column 2"}
+{"input": "1.", "mode": "trailing-strings", "error": "EOF while parsing a value at line 1 column 2"}
+{"input": "tru", "mode": "on", "error": "EOF while parsing a value at line 1 column 3"}
+{"input": "tru", "mode": "trailing-strings", "error": "EOF while parsing a value at line 1 column 3"}
+{"input": "\"ab", "mode": "on", "error": "EOF while parsing a string at line 1 column 3"}
+{"input": "\"ab", "mode": "trailing-strings", "ok": "\"ab\""}
+{"input": "", "mode": "on", "error": "EOF while parsing a value at line 1 column 0"}
+{"input": "", "mode": "trailing-strings", "error": "EOF while parsing a value at line 1 column 0"}
+{"input": " ", "mode": "on", "error": "EOF while parsing a value at line 1 column 1"}
+{"input": " ", "mode": "trailing-strings", "error": "EOF while parsing a value at line 1 column 1"}
+{"input": "\"a\\n", "mode": "on", "error": "EOF while parsing a string at line 1 column 4"}
+{"input": "\"a\\n", "mode": "trailing-strings", "ok": "\"a\\n\""}
+{"input": "[", "mode": "on", "ok": "[]"}
+{"input": "[", "mode": "trailing-strings", "ok": "[]"}
+{"input": "{", "mode": "on", "ok": "{}"}
+{"input": "{", "mode": "trailing-strings", "ok": "{}"}
+{"input": "[[[", "mode": "on", "ok": "[[[]]]"}
+{"input": "[[[", "mode": "trailing-strings", "ok": "[[[]]]"}
+{"input": "[  ", "mode": "on", "ok": "[]"}
+{"input": "[  ", "mode": "trailing-strings", "ok": "[]"}
+{"input": "{  ", "mode": "on", "ok": "{}"}
+{"input": "{  ", "mode": "trailing-strings", "ok": "{}"}
+{"input": "[1, ", "mode": "on", "ok": "[1]"}
+{"input": "[1, ", "mode": "trailing-strings", "ok": "[1]"}
+{"input": "[1, 2", "mode": "on", "ok": "[1, 2]"}
+{"input": "[1, 2", "mode": "trailing-strings", "ok": "[1, 2]"}
+{"input": "[1,  ", "mode": "on", "ok": "[1]"}
+{"input": "[1,  ", "mode": "trailing-strings", "ok": "[1]"}
+{"input": "[1, 2 ,", "mode": "on", "ok": "[1, 2]"}
+{"input": "[1, 2 ,", "mode": "trailing-strings", "ok": "[1, 2]"}
+{"input": "[[1], ", "mode": "on", "ok": "[[1]]"}
+{"input": "[[1], ", "mode": "trailing-strings", "ok": "[[1]]"}
+{"input": "{\"a\":", "mode": "on", "ok": "{}"}
+{"input": "{\"a\":", "mode": "trailing-strings", "ok": "{}"}
+{"input": "{\"a\": tr", "mode": "on", "ok": "{}"}
+{"input": "{\"a\": tr", "mode": "trailing-strings", "ok": "{}"}
+{"input": "{\"a\": [1, 2", "mode": "on", "ok": "{\"a\": [1, 2]}"}
+{"input": "{\"a\": [1, 2", "mode": "trailing-strings", "ok": "{\"a\": [1, 2]}"}
+{"input": "{\"a\": {\"b\": \"c", "mode": "on", "ok": "{\"a\": {}}"}
+{"input": "{\"a\": {\"b\": \"c", "mode": "trailing-strings", "ok": "{\"a\": {\"b\": \"c\"}}"}
+{"input": "{\"a\"", "mode": "on", "ok": "{}"}
+{"input": "{\"a\"", "mode": "trailing-strings", "ok": "{}"}
+{"input": "{\"a", "mode": "on", "ok": "{}"}
+{"input": "{\"a", "mode": "trailing-strings", "ok": "{}"}
+{"input": "{\"a\" ", "mode": "on", "ok": "{}"}
+{"input": "{\"a\" ", "mode": "trailing-strings", "ok": "{}"}
+{"input": "{\"a\\u12", "mode": "on", "ok": "{}"}
+{"input": "{\"a\\u12", "mode": "trailing-strings", "ok": "{}"}
+{"input": "{\"a\": 1,  ", "mode": "on", "ok": "{\"a\": 1}"}
+{"input": "{\"a\": 1,  ", "mode": "trailing-strings", "ok": "{\"a\": 1}"}
+{"input": "{\"a\": 1, ", "mode": "on", "ok": "{\"a\": 1}"}
+{"input": "{\"a\": 1, ", "mode": "trailing-strings", "ok": "{\"a\": 1}"}
+{"input": "{\"a\":1,", "mode": "on", "ok": "{\"a\": 1}"}
+{"input": "{\"a\":1,", "mode": "trailing-strings", "ok": "{\"a\": 1}"}
+{"input": "{\"a\":1, \"b\":", "mode": "on", "ok": "{\"a\": 1}"}
+{"input": "{\"a\":1, \"b\":", "mode": "trailing-strings", "ok": "{\"a\": 1}"}
+{"input": "{\"a\": 1, \"b\"", "mode": "on", "ok": "{\"a\": 1}"}
+{"input": "{\"a\": 1, \"b\"", "mode": "trailing-strings", "ok": "{\"a\": 1}"}
+{"input": "[{", "mode": "on", "ok": "[{}]"}
+{"input": "[{", "mode": "trailing-strings", "ok": "[{}]"}
+{"input": "[{\"a\": 1, \"b\":", "mode": "on", "ok": "[{\"a\": 1}]"}
+{"input": "[{\"a\": 1, \"b\":", "mode": "trailing-strings", "ok": "[{\"a\": 1}]"}
+{"input": "[1, {\"a\": \"b", "mode": "on", "ok": "[1, {}]"}
+{"input": "[1, {\"a\": \"b", "mode": "trailing-strings", "ok": "[1, {\"a\": \"b\"}]"}
+{"input": "{\"a\": [", "mode": "on", "ok": "{\"a\": []}"}
+{"input": "{\"a\": [", "mode": "trailing-strings", "ok": "{\"a\": []}"}
+{"input": "[[1 x", "mode": "on", "ok": "[[1]]"}
+{"input": "[[1 x", "mode": "trailing-strings", "ok": "[[1]]"}
+{"input": "{\"x\": NaN", "mode": "on", "ok": "{\"x\": NaN}"}
+{"input": "{\"x\": NaN", "mode": "trailing-strings", "ok": "{\"x\": NaN}"}
+{"input": "{\"x\": -", "mode": "on", "ok": "{}"}
+{"input": "{\"x\": -", "mode": "trailing-strings", "ok": "{}"}
+{"input": "[-Infinity, ", "mode": "on", "ok": "[-Infinity]"}
+{"input": "[-Infinity, ", "mode": "trailing-strings", "ok": "[-Infinity]"}
+{"input": "{\"a\": 1, \"a\": 2, \"b", "mode": "on", "ok": "{\"a\": 2}"}
+{"input": "{\"a\": 1, \"a\": 2, \"b", "mode": "trailing-strings", "ok": "{\"a\": 2}"}
+{"input": "[1 x", "mode": "on", "ok": "[1]"}
+{"input": "[1 x", "mode": "trailing-strings", "ok": "[1]"}
+{"input": "[1] x", "mode": "on", "ok": "[1]"}
+{"input": "[1] x", "mode": "trailing-strings", "ok": "[1]"}
+{"input": "[[1 x], 2]", "mode": "on", "ok": "[[1]]"}
+{"input": "[[1 x], 2]", "mode": "trailing-strings", "ok": "[[1]]"}
+{"input": "{\"a\": 1 x", "mode": "on", "ok": "{\"a\": 1}"}
+{"input": "{\"a\": 1 x", "mode": "trailing-strings", "ok": "{\"a\": 1}"}
+{"input": "[{\"a\": 1 ] ]", "mode": "on", "ok": "[{\"a\": 1}]"}
+{"input": "[{\"a\": 1 ] ]", "mode": "trailing-strings", "ok": "[{\"a\": 1}]"}
+{"input": "[{\"a\": 1 ], 5]", "mode": "on", "ok": "[{\"a\": 1}]"}
+{"input": "[{\"a\": 1 ], 5]", "mode": "trailing-strings", "ok": "[{\"a\": 1}]"}
+{"input": "[[1 }, 2]", "mode": "on", "ok": "[[1]]"}
+{"input": "[[1 }, 2]", "mode": "trailing-strings", "ok": "[[1]]"}
+{"input": "{\"a\": [1 }", "mode": "on", "ok": "{\"a\": [1]}"}
+{"input": "{\"a\": [1 }", "mode": "trailing-strings", "ok": "{\"a\": [1]}"}
+{"input": "{\"a\": [1 }, \"b\": 2}", "mode": "on", "ok": "{\"a\": [1]}"}
+{"input": "{\"a\": [1 }, \"b\": 2}", "mode": "trailing-strings", "ok": "{\"a\": [1]}"}
+{"input": "[1 2", "mode": "on", "ok": "[1]"}
+{"input": "[1 2", "mode": "trailing-strings", "ok": "[1]"}
+{"input": "{\"a\": 1 \"b\": 2}", "mode": "on", "ok": "{\"a\": 1}"}
+{"input": "{\"a\": 1 \"b\": 2}", "mode": "trailing-strings", "ok": "{\"a\": 1}"}
+{"input": "[\"x\" \"y\"]", "mode": "on", "ok": "[\"x\"]"}
+{"input": "[\"x\" \"y\"]", "mode": "trailing-strings", "ok": "[\"x\"]"}
+{"input": "{\"a\": \"b\" \"c\": 1}", "mode": "on", "ok": "{\"a\": \"b\"}"}
+{"input": "{\"a\": \"b\" \"c\": 1}", "mode": "trailing-strings", "ok": "{\"a\": \"b\"}"}
+{"input": "[1]]", "mode": "on", "ok": "[1]"}
+{"input": "[1]]", "mode": "trailing-strings", "ok": "[1]"}
+{"input": "[true false]", "mode": "on", "ok": "[true]"}
+{"input": "[true false]", "mode": "trailing-strings", "ok": "[true]"}
+{"input": "{\"a\": \"x\"} y", "mode": "on", "ok": "{\"a\": \"x\"}"}
+{"input": "{\"a\": \"x\"} y", "mode": "trailing-strings", "ok": "{\"a\": \"x\"}"}
+{"input": "{\"a\": 1}  ", "mode": "on", "ok": "{\"a\": 1}"}
+{"input": "{\"a\": 1}  ", "mode": "trailing-strings", "ok": "{\"a\": 1}"}
+{"input": "[1, 2]]", "mode": "on", "ok": "[1, 2]"}
+{"input": "[1, 2]]", "mode": "trailing-strings", "ok": "[1, 2]"}
+{"input": "[1, 2], 3", "mode": "on", "ok": "[1, 2]"}
+{"input": "[1, 2], 3", "mode": "trailing-strings", "ok": "[1, 2]"}
+{"input": "{\"a\" x", "mode": "on", "error": "expected `:` at line 1 column 6"}
+{"input": "{\"a\" x", "mode": "trailing-strings", "error": "expected `:` at line 1 column 6"}
+{"input": "{\"a\": x", "mode": "on", "error": "expected value at line 1 column 7"}
+{"input": "{\"a\": x", "mode": "trailing-strings", "error": "expected value at line 1 column 7"}
+{"input": "[x", "mode": "on", "error": "expected value at line 1 column 2"}
+{"input": "[x", "mode": "trailing-strings", "error": "expected value at line 1 column 2"}
+{"input": "[1,]", "mode": "on", "error": "trailing comma at line 1 column 4"}
+{"input": "[1,]", "mode": "trailing-strings", "error": "trailing comma at line 1 column 4"}
+{"input": "[1, x", "mode": "on", "error": "expected value at line 1 column 5"}
+{"input": "[1, x", "mode": "trailing-strings", "error": "expected value at line 1 column 5"}
+{"input": "[01", "mode": "on", "error": "invalid number at line 1 column 3"}
+{"input": "[01", "mode": "trailing-strings", "error": "invalid number at line 1 column 3"}
+{"input": "[1.e", "mode": "on", "error": "invalid number at line 1 column 4"}
+{"input": "[1.e", "mode": "trailing-strings", "error": "invalid number at line 1 column 4"}
+{"input": "[\"a\\x", "mode": "on", "error": "invalid escape at line 1 column 5"}
+{"input": "[\"a\\x", "mode": "trailing-strings", "error": "invalid escape at line 1 column 5"}
+{"input": "[nan", "mode": "on", "error": "expected ident at line 1 column 3"}
+{"input": "[nan", "mode": "trailing-strings", "error": "expected ident at line 1 column 3"}
+{"input": "{\"a\":1,}", "mode": "on", "error": "trailing comma at line 1 column 8"}
+{"input": "{\"a\":1,}", "mode": "trailing-strings", "error": "trailing comma at line 1 column 8"}
+{"input": "{\"a\":1, x", "mode": "on", "error": "key must be a string at line 1 column 9"}
+{"input": "{\"a\":1, x", "mode": "trailing-strings", "error": "key must be a string at line 1 column 9"}
+{"input": "{\"a\": 1, 2", "mode": "on", "error": "key must be a string at line 1 column 10"}
+{"input": "{\"a\": 1, 2", "mode": "trailing-strings", "error": "key must be a string at line 1 column 10"}
+{"input": "[\"\\ud83d\"", "mode": "on", "error": "unexpected end of hex escape at line 1 column 9"}
+{"input": "[\"\\ud83d\"", "mode": "trailing-strings", "error": "unexpected end of hex escape at line 1 column 9"}
+{"input": "[\"a\\ud83dx\"]", "mode": "on", "error": "unexpected end of hex escape at line 1 column 10"}
+{"input": "[\"a\\ud83dx\"]", "mode": "trailing-strings", "error": "unexpected end of hex escape at line 1 column 10"}
+{"input": "[\"a\\u12", "mode": "on", "ok": "[]"}
+{"input": "[\"a\\u12", "mode": "trailing-strings", "ok": "[\"a\"]"}
+{"input": "[1, \"a\\", "mode": "on", "ok": "[1]"}
+{"input": "[1, \"a\\", "mode": "trailing-strings", "ok": "[1, \"a\"]"}
+{"input": "[\"a\\ud83d\\ude", "mode": "on", "ok": "[]"}
+{"input": "[\"a\\ud83d\\ude", "mode": "trailing-strings", "ok": "[\"a\"]"}
+{"input": "[\"ab\\n", "mode": "on", "ok": "[]"}
+{"input": "[\"ab\\n", "mode": "trailing-strings", "ok": "[\"ab\\n\"]"}
+{"input": "[\"\\ud83d", "mode": "on", "ok": "[]"}
+{"input": "[\"\\ud83d", "mode": "trailing-strings", "ok": "[\"\"]"}
+{"input": "[\"a\\ud83d", "mode": "on", "ok": "[]"}
+{"input": "[\"a\\ud83d", "mode": "trailing-strings", "ok": "[\"a\"]"}
+{"input": "\"", "mode": "on", "error": "EOF while parsing a string at line 1 column 1"}
+{"input": "\"", "mode": "trailing-strings", "ok": "\"\""}
+{"input": "[\"", "mode": "on", "ok": "[]"}
+{"input": "[\"", "mode": "trailing-strings", "ok": "[\"\"]"}
+{"input": "{\"", "mode": "on", "ok": "{}"}
+{"input": "{\"", "mode": "trailing-strings", "ok": "{}"}
+{"input": "[1, \"a\"", "mode": "on", "ok": "[1, \"a\"]"}
+{"input": "[1, \"a\"", "mode": "trailing-strings", "ok": "[1, \"a\"]"}
+{"input": "[1, \"a\" ", "mode": "on", "ok": "[1, \"a\"]"}
+{"input": "[1, \"a\" ", "mode": "trailing-strings", "ok": "[1, \"a\"]"}
+{"input": "{\"a\": \"b\"", "mode": "on", "ok": "{\"a\": \"b\"}"}
+{"input": "{\"a\": \"b\"", "mode": "trailing-strings", "ok": "{\"a\": \"b\"}"}
+{"input": "\"ab\\u00e", "mode": "on", "error": "EOF while parsing a string at line 1 column 8"}
+{"input": "\"ab\\u00e", "mode": "trailing-strings", "ok": "\"ab\""}
+{"input": "\"\\ud83d\\ude", "mode": "on", "error": "EOF while parsing a string at line 1 column 11"}
+{"input": "\"\\ud83d\\ude", "mode": "trailing-strings", "ok": "\"\""}
+{"input": "\"a\\ud83d\\", "mode": "on", "error": "EOF while parsing a string at line 1 column 9"}
+{"input": "\"a\\ud83d\\", "mode": "trailing-strings", "ok": "\"a\""}
+{"input": "\"a\\ud83d", "mode": "on", "error": "EOF while parsing a string at line 1 column 8"}
+{"input": "\"a\\ud83d", "mode": "trailing-strings", "ok": "\"a\""}
+{"input": "\"a\\ud83d\\ude00", "mode": "on", "error": "EOF while parsing a string at line 1 column 14"}
+{"input": "\"a\\ud83d\\ude00", "mode": "trailing-strings", "ok": "\"a😀\""}
+{"input": "\"a\\ud83dx", "mode": "on", "error": "unexpected end of hex escape at line 1 column 9"}
+{"input": "\"a\\ud83dx", "mode": "trailing-strings", "error": "unexpected end of hex escape at line 1 column 9"}
+{"input": "[\"é世", "mode": "on", "ok": "[]"}
+{"input": "[\"é世", "mode": "trailing-strings", "ok": "[\"é世\"]"}
+{"input": "\"😀b", "mode": "on", "error": "EOF while parsing a string at line 1 column 6"}
+{"input": "\"😀b", "mode": "trailing-strings", "ok": "\"😀b\""}

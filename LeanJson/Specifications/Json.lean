@@ -1,4 +1,5 @@
 import LeanJson.RepoImpl.Access
+import LeanJson.RepoImpl.Partial
 
 /-!
 # Specifications: what the codec must satisfy
@@ -145,6 +146,20 @@ structure ParsedWith (cfg : ParseCfg) (bs : ByteArray) (v : Json) : Prop where
   height : ∀ L, cfg.maxDepth = some L → v.height < L
   /-- In strict mode, no `NaN` or infinity is returned. -/
   finite : cfg.allowInfNan = false → v.allFinite = true
+
+/-- What a successful parse of partial input guarantees about its result
+`v` (`from_json(data, allow_partial=...)`). -/
+structure ParsedPartial (cfg : ParseCfg) (mode : PartialMode) (bs : ByteArray) (v : Json) : Prop where
+  /-- `v` is the partial parser's answer. -/
+  ref : parsePartialWith cfg mode bs = .ok v
+  /-- On a complete document, partial mode changes nothing. -/
+  complete : ∀ w, parseDocumentWith cfg bs = .ok w → v = w
+
+/-- The postcondition of `from_json` under `allow_partial := mode`. -/
+abbrev FromJson (cfg : ParseCfg) (mode : PartialMode) (bs : ByteArray) (v : Json) : Prop :=
+  match mode with
+  | .off => ParsedWith cfg bs v
+  | m => ParsedPartial cfg m bs v
 
 /-- `ParsedWith` at `from_json`'s defaults. -/
 abbrev Parsed (bs : ByteArray) (v : Json) : Prop := ParsedWith {} bs v

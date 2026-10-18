@@ -231,3 +231,12 @@ status = "implemented"
 realises = ["LeanJson.valueGo", "LeanJson.parseElems", "LeanJson.parseMembers", "LeanJson.skipWs", "LeanJson.parseStrBody"]
 theorem = ["LeanJson.step_progress", "LeanJson.parseValueAt_progress", "LeanJson.valueL_progress", "LeanJson.valueStep_shape"]
 test = ["tests/Props.lean::random bytes: errors in bounds, results within the depth limit"]
+
+[[requirement]]
+id = "parse.partial"
+upstream = "docs/concepts/json.md#partial-json-parsing"
+title = "from_json(data, allow_partial=True | 'trailing-strings'): cut-off input read as far as it goes (jiter's partial mode); unchanged on a complete document"
+status = "implemented"
+realises = ["LeanJson.PartialMode", "LeanJson.pGo", "LeanJson.pStep", "LeanJson.pElems", "LeanJson.pMembers", "LeanJson.partialStrBody", "LeanJson.parsePartialIn", "LeanJson.parsePartial", "LeanJson.from_json"]
+theorem = ["LeanJson.parsePartialIn_complete", "LeanJson.parsePartialWith_complete", "LeanJson.parsedPartial_of_ref"]
+test = ["tests/Conformance.lean::allow_partial golden cases", "tests/fixtures/partial-golden.jsonl", "scripts/partial-golden.py"]

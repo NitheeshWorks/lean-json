@@ -61,6 +61,30 @@ def rep (c : Char) (n : Nat) : String := String.ofList (List.replicate n c)
 def probe := "from_json (2.50.1)"
 def pyjson := "Python json.dumps (CPython 3.13.9)"
 
+/-- The `allow_partial` golden cases (`tests/fixtures/partial-golden.jsonl`,
+recorded from pydantic-core 2.50.1 by `scripts/partial-golden.py`): each
+input in each partial mode gives the recorded value or error text. -/
+def partialGolden : IO Bool := do
+  let s ← IO.FS.readFile "tests/fixtures/partial-golden.jsonl"
+  let mut ok := true
+  for l in s.splitOn "\n" do
+    if l.isEmpty then continue
+    let some j := (from_json l).toOption | return false
+    let some (.str inp) := (some j.val)["input"]? | return false
+    let some (.str mode) := (some j.val)["mode"]? | return false
+    let m : PartialMode := if mode == "on" then .on else .trailingStrings
+    let got := match from_json inp (allow_partial := m) with
+      | .ok v => "ok " ++ printStr v.val
+      | .error e => "err " ++ e.description
+    let want := match (some j.val)["ok"]?, (some j.val)["error"]? with
+      | some (.str t), _ => match from_json t with | .ok v => "ok " ++ printStr v.val | .error _ => "?"
+      | _, some (.str e) => "err " ++ e
+      | _, _ => "?"
+    if got != want then
+      IO.println s!"      {repr inp} {mode}: got {got}, want {want}"
+      ok := false
+  return ok
+
 def cases : List Case := [
   -- tests/test_json.py
   err "tests/test_json.py::test_json_invalid" "unterminated string" "\"foobar"
@@ -264,7 +288,8 @@ def cases : List Case := [
   ⟨pyjson, "dumps(json.loads(...)) collapses repeated keys",
     expect (match from_json "{\"a\":1,\"b\":2,\"a\":{\"c\":3,\"c\":4}}" with
       | .ok v => dumps v.val
-      | .error e => e.description) "{\"a\": {\"c\": 4}, \"b\": 2}"⟩
+      | .error e => e.description) "{\"a\": {\"c\": 4}, \"b\": 2}"⟩,
+  ⟨"docs/concepts/json.md#partial-json-parsing", "allow_partial golden cases", partialGolden⟩
 ]
 
 def main : IO UInt32 := do
