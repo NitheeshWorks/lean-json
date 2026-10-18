@@ -81,6 +81,117 @@ theorem parseEscape_simple {get : Nat → Option UInt8} {n q : Nat} {b : UInt8} 
     | (cases hs; simp_all)
     | cases hs
 
+/-- The hex digit at `i`, or `16` (no digit). -/
+@[inline] def hexD (get : Nat → Option UInt8) (i : Nat) : Nat :=
+  match get i with
+  | some b =>
+    match hexVal b with
+    | some v => v
+    | none => 16
+  | none => 16
+
+theorem hexD_spec {get : Nat → Option UInt8} {i : Nat} (h : hexD get i < 16) :
+    hexAt get i = .ok (hexD get i) := by
+  unfold hexD at h ⊢
+  unfold hexAt
+  split at h
+  · rename_i b hb
+    rw [hb]
+    split at h
+    · rename_i v hv
+      simp only [hv]
+    · simp at h
+  · simp at h
+
+/-- The four hex digits at `q` as a number, or `65536` (not four digits). -/
+@[specialize] def hex4v (get : Nat → Option UInt8) (q : Nat) : Nat :=
+  let a := hexD get q
+  let b := hexD get (q + 1)
+  let c := hexD get (q + 2)
+  let d := hexD get (q + 3)
+  if a < 16 ∧ b < 16 ∧ c < 16 ∧ d < 16 then a * 4096 + b * 256 + c * 16 + d else 65536
+
+theorem hex4v_spec {get : Nat → Option UInt8} {n q : Nat} (hn : ¬ n < q + 4) (h : hex4v get q < 65536) :
+    parseHex4 get n q = .ok (hex4v get q) := by
+  unfold hex4v at h ⊢
+  dsimp only at h ⊢
+  split at h
+  · rename_i hd
+    obtain ⟨h1, h2, h3, h4⟩ := hd
+    rw [ite_eq_left ⟨h1, h2, h3, h4⟩]
+    unfold parseHex4
+    rw [ite_eq_right hn, hexD_spec h1, hexD_spec h2, hexD_spec h3, hexD_spec h4]
+  · simp at h
+
+/-- A `\u` escape whose `u` is at `q`, decoded without allocating: the code
+point times 16 plus the bytes it spans from `q` (5, or 11 for a surrogate
+pair), or `0` when it is not a well-formed one (the general path then
+reports the error). -/
+@[specialize] def uEsc (get : Nat → Option UInt8) (n q : Nat) : Nat :=
+  match get q with
+  | some 117 =>
+    if n < q + 5 then 0 else
+    let u := hex4v get (q + 1)
+    if u < 0xD800 ∨ (0xE000 ≤ u ∧ u < 65536) then u * 16 + 5
+    else if u < 0xDC00 then
+      match get (q + 5), get (q + 6) with
+      | some 92, some 117 =>
+        if n < q + 11 then 0 else
+        let l := hex4v get (q + 7)
+        if 0xDC00 ≤ l ∧ l < 0xE000 then (0x10000 + (u - 0xD800) * 1024 + (l - 0xDC00)) * 16 + 11
+        else 0
+      | _, _ => 0
+    else 0
+  | _ => 0
+
+theorem uEsc_spec {get : Nat → Option UInt8} {n q : Nat} (h : uEsc get n q ≠ 0) :
+    parseEscape get n q = .ok (Char.ofNat (uEsc get n q / 16), q + uEsc get n q % 16) := by
+  unfold uEsc at h ⊢
+  split at h
+  · rename_i hg
+    dsimp only at h ⊢
+    have hn : ¬ n < q + 5 := fun hn => h (by rw [ite_eq_left hn])
+    rw [ite_eq_right hn] at h ⊢
+    have hn4 : ¬ n < q + 1 + 4 := by omega
+    unfold parseEscape
+    rw [hg]
+    simp only [show ((117 : UInt8) == 34) = false from rfl, show ((117 : UInt8) == 92) = false from rfl,
+      show ((117 : UInt8) == 47) = false from rfl, show ((117 : UInt8) == 98) = false from rfl,
+      show ((117 : UInt8) == 102) = false from rfl, show ((117 : UInt8) == 110) = false from rfl,
+      show ((117 : UInt8) == 114) = false from rfl, show ((117 : UInt8) == 116) = false from rfl,
+      show ((117 : UInt8) == 117) = true from rfl, Bool.false_eq_true, ↓reduceIte]
+    by_cases hu : hex4v get (q + 1) < 0xD800 ∨ (0xE000 ≤ hex4v get (q + 1) ∧ hex4v get (q + 1) < 65536)
+    · rw [ite_eq_left hu]
+      have hlt : hex4v get (q + 1) < 65536 := by omega
+      rw [hex4v_spec hn4 hlt]
+      simp only [bind, Except.bind]
+      rw [ite_eq_right (by omega), ite_eq_right (by omega)]
+      congr 3 <;> omega
+    · rw [ite_eq_right hu] at h ⊢
+      by_cases hh : hex4v get (q + 1) < 0xDC00
+      · rw [ite_eq_left hh] at h ⊢
+        have hlt : hex4v get (q + 1) < 65536 := by omega
+        rw [hex4v_spec hn4 hlt]
+        simp only [bind, Except.bind]
+        rw [ite_eq_right (by omega), ite_eq_left (by omega)]
+        split at h
+        · rename_i h5 h6
+          simp only [h5, h6]
+          have hn' : ¬ n < q + 11 := fun hn' => h (by rw [ite_eq_left hn'])
+          rw [ite_eq_right hn'] at h ⊢
+          by_cases hl : 0xDC00 ≤ hex4v get (q + 7) ∧ hex4v get (q + 7) < 0xE000
+          · rw [ite_eq_left hl]
+            have hlt' : hex4v get (q + 7) < 65536 := by omega
+            rw [hex4v_spec (by omega) hlt']
+            dsimp only
+            rw [ite_eq_left hl]
+            generalize 65536 + (hex4v get (q + 1) - 55296) * 1024 + (hex4v get (q + 7) - 56320) = X
+            rw [show (X * 16 + 11) / 16 = X by omega, show (X * 16 + 11) % 16 = 11 by omega]
+          · rw [ite_eq_right hl] at h; exact absurd rfl h
+        · exact absurd rfl h
+      · rw [ite_eq_right hh] at h; exact absurd rfl h
+  · exact absurd rfl h
+
 /-- The code point of the one-letter escape whose letter is at `q`, or
 `0x110000` (no character) when there is none: a scalar, so asking costs no
 allocation. -/
@@ -118,6 +229,9 @@ inlines. -/
         let c := escCode get (pos + 1)
         if c < 0x110000 then parseStrBodyFast get n (pos + 2) (acc.push (Char.ofNat c.toNat))
         else
+          let u := uEsc get n (pos + 1)
+          if hu : u ≠ 0 then parseStrBodyFast get n (pos + 1 + u % 16) (acc.push (Char.ofNat (u / 16)))
+          else
           match _he : parseEscape get n (pos + 1) with
           | .ok (c, p) => parseStrBodyFast get n p (acc.push c)
           | .error e => .error e
@@ -134,6 +248,7 @@ decreasing_by
     | omega
     | (have := parseEscape_next _he; simp at this; omega)
     | (have := Char.utf8Size_pos c; omega)
+    | (have := parseEscape_next (uEsc_spec hu); simp at this; omega)
 
 theorem parseStrBody_eq_fast_at (get : Nat → Option UInt8) (n pos : Nat) (acc : String) :
     parseStrBody get n pos acc = parseStrBodyFast get n pos acc := by
@@ -160,12 +275,23 @@ theorem parseStrBody_eq_fast_at (get : Nat → Option UInt8) (n pos : Nat) (acc 
             exact parseStrBody_eq_fast_at get n (pos + 1 + 1) _
           · rename_i e h; rw [this] at h; cases h
         · rw [ite_eq_right hc]
-          split
-          · rename_i c p h
-            have := parseEscape_next h
-            simp at this
-            exact parseStrBody_eq_fast_at get n p _
-          · rfl
+          by_cases hu : uEsc get n (pos + 1) ≠ 0
+          · rw [dite_eq_left hu]
+            have := uEsc_spec hu
+            have hnx := parseEscape_next this
+            simp at hnx
+            split
+            · rename_i c' p h
+              rw [this] at h; cases h
+              exact parseStrBody_eq_fast_at get n _ _
+            · rename_i e h; rw [this] at h; cases h
+          · rw [dite_eq_right hu]
+            split
+            · rename_i c p h
+              have := parseEscape_next h
+              simp at this
+              exact parseStrBody_eq_fast_at get n p _
+            · rfl
       rw [ite_eq_right c92, ite_eq_right c92]
       by_cases c32 : b < 32
       · rw [ite_eq_left c32, ite_eq_left c32]

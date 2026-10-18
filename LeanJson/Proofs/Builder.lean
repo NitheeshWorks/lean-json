@@ -6,29 +6,6 @@ import LeanJson.RepoImpl.Builder
 
 namespace LeanJson
 
-theorem pushList_data (acc : ByteArray) (l : List UInt8) :
-    (pushList acc l).data.toList = acc.data.toList ++ l := by
-  induction l generalizing acc with
-  | nil => simp [pushList]
-  | cons b l ih =>
-    simp only [pushList, List.foldl_cons] at *
-    rw [ih]; simp [ByteArray.data_push]
-
-theorem push_data (acc : ByteArray) (b : UInt8) : (acc.push b).data.toList = acc.data.toList ++ [b] := by
-  simp [ByteArray.data_push]
-
-theorem pushString_data (ascii : Bool) (acc : ByteArray) (s : String) :
-    (pushString ascii acc s).data.toList = acc.data.toList ++ printString ascii s := by
-  unfold pushString printString
-  have key : ∀ (cs : List Char) (a : ByteArray),
-      (cs.foldl (fun a c => pushList a (escapeChar ascii c)) a).data.toList =
-        a.data.toList ++ cs.flatMap (escapeChar ascii) := by
-    intro cs
-    induction cs with
-    | nil => simp
-    | cons c cs ih => intro a; simp only [List.foldl_cons, ih, pushList_data, List.flatMap_cons, List.append_assoc]
-  rw [push_data, key, push_data]; simp
-
 theorem snd_lt (kv : String × Json) : sizeOf kv.2 < sizeOf kv := by
   cases kv; simp; omega
 

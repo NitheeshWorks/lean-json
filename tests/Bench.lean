@@ -4,9 +4,11 @@ open LeanJson
 /-!
 # Native memory and time benchmark
 
-`lake exe bench [flat|keys|strings|wide|dups|collide|collide-naive|e2e] [mb] [max-ms]` builds an input of about `mb` MB,
+`lake exe bench [kind] [mb] [max-ms] [runs]` builds an input of about `mb` MB,
 parses it with `parse` (the `from_json` defaults) and reports the time and the
-process's peak resident memory (`VmHWM`). It fails when the memory the parse
+process's peak resident memory (`VmHWM`). With `runs` (default 1) the parse is
+repeated and the time reported and bounded is the best run, as the ratio table
+in `docs/performance.md` measures both sides (best of 5, warm). It fails when the memory the parse
 adds exceeds `8 × input + 32 MB` (`10 ×` for `wide`, whose every key is a
 string kept twice, in the object and in its key index; `12 ×` for `flat` and
 `e2e`, see below), or the parse takes longer than `max-ms` when given.
@@ -42,6 +44,13 @@ process-wide.
   keys into a plain `Std.HashMap String Nat`, to show the attack is real.
 * `e2e`: the `flat` input as a server handles a request body: text in,
   `from_json`, `to_json` out (bound: 12 × input + 32 MB).
+* `longkeys`: 20000 keys of 1000 characters (20 MB).
+* `escapes`: one string of `mb` MB of `\\n` escapes.
+* `surrogates`: one string of `mb` MB of `\\ud83d\\ude00` surrogate pairs.
+* `bigints`: an array of 5000 integers of 4000 digits (20 MB).
+* `printstr`: printing (`print`, as `to_json`) one string of `mb` MiB of
+  ASCII text: the input a server echoes in a 422 body (lean-fastapi's 1 MiB
+  header case). Bounded on time only.
 * `grow`, `grow-exact`: the array-growth diagnostic above (no bound).
 -/
 
@@ -188,8 +197,38 @@ def grow (exact : Bool) (mb : Nat) : IO UInt32 := do
   IO.println s!"grow{if exact then "-exact" else ""} {n} elements: peak {peak / 1024} MB (before {base / 1024} MB), added {(peak - base) / 1024} MB, size {a.size}"
   return 0
 
+/-- `mb` MiB of ASCII text, a header value as a client might send it. -/
+def asciiText (mb : Nat) : String := Id.run do
+  let line := "0123456789abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ-_.~"
+  let mut s := ""
+  while s.utf8ByteSize < mb * 1048576 do
+    s := s ++ line
+  return s
+
+/-- Printing one large string, best of `runs`. -/
+def printString (mb : Nat) (maxMs : Option Nat) (runs : Nat) : IO UInt32 := do
+  let v := Json.str (asciiText mb)
+  let mut best := 1000000000
+  let mut size := 0
+  for _ in [0:runs] do
+    let t ← IO.monoNanosNow
+    let out := (print v).val
+    size := out.size
+    let t2 ← IO.monoNanosNow
+    best := min best (t2 - t)
+  IO.println s!"printstr {mb} MiB: print best of {runs} {best / 1000} us, {size} bytes out"
+  if let some m := maxMs then
+    if best > m * 1000000 then
+      IO.println s!"FAIL: printing took {best / 1000000} ms, over the bound {m} ms"
+      return 1
+  return 0
+
 def main (args : List String) : IO UInt32 := do
   let kind := args.head?.getD "flat"
+  let runs := (args.drop 3).head?.bind String.toNat? |>.getD 1
+  if kind == "printstr" then
+    return ← printString ((args.drop 1).head?.bind String.toNat? |>.getD 1)
+      ((args.drop 2).head?.bind String.toNat?) runs
   if kind == "grow" || kind == "grow-exact" then
     return ← grow (kind == "grow-exact") ((args.drop 1).head?.bind String.toNat? |>.getD 20)
   let mb := (args.drop 1).head?.bind String.toNat? |>.getD 20
@@ -228,9 +267,17 @@ def main (args : List String) : IO UInt32 := do
     if added > bound then
       IO.println s!"FAIL: the parse added {added / 1000000} MB, over the bound {bound / 1000000} MB"
       return 1
+    let mut best := t2 - t
+    for _ in [1:runs] do
+      let t ← IO.monoMsNow
+      let ok := match parse input with | .ok _ => true | .error _ => false
+      let t2 ← IO.monoMsNow
+      if !ok then IO.println "FAIL: a repeated parse failed"; return 1
+      best := min best (t2 - t)
+    if runs > 1 then IO.println s!"{kind}: best of {runs} {best} ms"
     if let some m := maxMs then
-      if t2 - t > m then
-        IO.println s!"FAIL: the parse took {t2 - t} ms, over the bound {m} ms"
+      if best > m then
+        IO.println s!"FAIL: the parse took {best} ms, over the bound {m} ms"
         return 1
     return 0
   | .error e => IO.println e.description; return 1
