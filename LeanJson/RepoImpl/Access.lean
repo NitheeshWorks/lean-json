@@ -1,5 +1,6 @@
 import LeanJson.RepoImpl.Parse
-import Lean.Data.Json
+import Lean.Data.Json.Basic
+import Lean.Data.Json.Printer
 
 /-!
 # RepoImpl: accessors, dict semantics, `Lean.Json` and `Float` bridges
@@ -212,5 +213,9 @@ def Json.compress (v : Json) : String :=
 
 
 instance : ToString Json := ⟨Json.compress⟩
+
+/-- Displays as the `json%` term that builds the value. Written by hand: the
+derived printer for a nested inductive is a `partial def`. -/
+instance : Repr Json := ⟨fun j _ => .text ("json% " ++ j.compress)⟩
 
 end LeanJson

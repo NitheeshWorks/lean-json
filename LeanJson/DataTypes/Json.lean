@@ -50,7 +50,7 @@ inductive Json where
   | str (s : String)
   | arr (elems : List Json)
   | obj (fields : List (String × Json))
-  deriving Repr, Inhabited
+  deriving Inhabited
 
 mutual
 /-- Structural decidable equality (the derive handler does not cover nested

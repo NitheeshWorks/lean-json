@@ -2,6 +2,7 @@ import LeanJson.RepoImpl.Digits
 import LeanJson.RepoImpl.Print
 import LeanJson.RepoImpl.Parse
 import LeanJson.RepoImpl.Access
+import LeanJson.RepoImpl.Notation
 
 /-!
 # RepoImpl

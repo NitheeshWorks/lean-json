@@ -116,20 +116,41 @@ def Compact (print : Json → List UInt8) : Prop :=
     ((32 : UInt8) ∈ print v → HasSpaceInString v)
 
 /-- What a successful document parse of `bs` guarantees about its result `v`.
-It is the postcondition `LeanJson.parse` returns; its fields only ever grow. -/
+It is the postcondition `LeanJson.from_json` returns. -/
 structure Parsed (bs : ByteArray) (v : Json) : Prop where
   /-- `v` is the reference parser's answer. -/
   ref : parseDocument bs = .ok v
+  /-- Printed again, under any options, `v` reads back as itself. -/
+  reprint : ∀ o : PrintOpts, parseDocumentWith .lossless (printWith o 0 v).toByteArray = .ok v
+  /-- If the input is the printing of some value `w` (any options), then `w`
+  is what was read: canonical input re-prints to exactly the input. -/
+  canonical : ∀ (o : PrintOpts) (w : Json), printWith o 0 w = bs.data.toList → w = v
 
 /-- What a successful prefix parse of `bs` from `pos` guarantees about its
 result `r = (value, end position)`. -/
 structure ParsedAt (bs : ByteArray) (pos : Nat) (r : Json × Nat) : Prop where
   /-- `r` is the reference parser's answer at the API's fuel budget. -/
   ref : parseValue bs pos (fuelFor bs pos) = .ok r
+  /-- At least one byte was consumed, and no byte past the end. -/
+  bounds : pos < r.2 ∧ r.2 ≤ bs.size
+  /-- If the bytes from `pos` are the printing of some `w` (any options and
+  depth) followed by a continuation that cannot extend a number, the result
+  is `w` and the end position is just past its printing. -/
+  canonical : ∀ (o : PrintOpts) (d : Nat) (w : Json) (rest : List UInt8),
+    At bs pos (printWith o d w) rest → NumStop rest → r = (w, pos + (printWith o d w).length)
 
-/-- What `LeanJson.print` guarantees about its output `b` for `v` under `o`. -/
+/-- What `LeanJson.to_json` guarantees about its output `b` for `v` under `o`. -/
 structure Printed (o : PrintOpts) (v : Json) (b : ByteArray) : Prop where
   /-- `b` is exactly the printed bytes. -/
   bytes : b.data.toList = printWith o 0 v
+  /-- The lossless parser reads `b` back as `v`. -/
+  roundTrip : parseDocumentWith .lossless b = .ok v
+  /-- So does the default (`from_json`) parser, when every integer in `v` is
+  within its 4300-byte limit. -/
+  roundTripDefault : Fits {} v → parseDocument b = .ok v
+  /-- Compact options give no layout whitespace: no tab, LF or CR byte, and a
+  space only inside a string that has one. -/
+  compact : o.indent = none → (9 : UInt8) ∉ b.data.toList ∧ (10 : UInt8) ∉ b.data.toList ∧
+    (13 : UInt8) ∉ b.data.toList ∧ ((32 : UInt8) ∈ b.data.toList → HasSpaceInString v)
 
 end LeanJson.Spec
