@@ -105,7 +105,8 @@ Listed here with the reason, and in `docs/traceability.toml` with
   (the specification at every depth) of the parse that keeps every member,
   errors included (`parse_dedup`, `Proofs/Dedup.lean`).
 * **Peak memory and time**: `tests/Bench.lean`, asserted in CI (the parse adds
-  at most 8 × the input + 32 MB).
+  at most 8 × the input + 32 MB; 12 × for ten million array elements, whose
+  last doubling holds old and new buffers together, see the bench's header).
 * **Error kinds and offsets** for malformed input: the proofs cover what valid
   input does; what each malformed input reports is pinned against the
   released pydantic-core 2.50.1 in `tests/Conformance.lean` (`from_json

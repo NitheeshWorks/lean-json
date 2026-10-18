@@ -31,7 +31,13 @@ jobs:
         run: lake exe notation
       - name: Traceability
         run: python3 scripts/traceability-check.py
-      - name: Memory and time benchmark (peak memory within 8x the input + 32 MB; wide objects linear)
+      - name: Memory diagnostics (not a gate)
+        run: |
+          cat /sys/kernel/mm/transparent_hugepage/enabled || true
+          nproc; uname -r; ldd --version | head -1
+          lake exe bench grow 20
+          lake exe bench grow-exact 20
+      - name: Memory and time benchmark (peak memory within 8x the input + 32 MB, 12x for ten million array elements; wide objects linear)
         run: |
           lake exe bench flat 20
           lake exe bench keys 60

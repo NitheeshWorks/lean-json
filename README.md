@@ -129,11 +129,13 @@ error offsets, the `Lean.Json` bridge, `json%`) is listed with reasons in
 Arrays and objects are `Array`s, strings are built in place, small integers
 are shared, and repeated keys collapse while the object is read, so a parse
 needs memory close to pydantic-core's. `lake exe bench` (CI asserts the parse
-adds at most 8 × the input + 32 MB):
+adds at most 8 × the input + 32 MB; 12 × for the array of ten million
+integers, since a growing array's last doubling holds its old and new
+buffers together, which some machines count in full):
 
 | input | pydantic-core 2.50.1 peak | lean-json peak |
 |---|---|---|
-| 20 MB `[1,1,...]` (10^7 integers) | 211 MB | 232 MB |
+| 20 MB `[1,1,...]` (10^7 integers) | 205 MB (adds 150 MB) | 232 MB (adds 147-226 MB, by machine) |
 | 60 MB object repeating one key | 136 MB | 124 MB |
 
 Wide objects parse in linear time: each key is collapsed in constant time

@@ -8,8 +8,20 @@ open LeanJson
 parses it with `parse` (the `from_json` defaults) and reports the time and the
 process's peak resident memory (`VmHWM`). It fails when the memory the parse
 adds exceeds `8 × input + 32 MB` (`10 ×` for `wide`, whose every key is a
-string kept twice, in the object and in its key index), or the parse takes
-longer than `max-ms` when given. Run one kind per process: the peak is
+string kept twice, in the object and in its key index; `12 ×` for `flat` and
+`e2e`, see below), or the parse takes longer than `max-ms` when given.
+
+`flat` is ten million one-byte elements, so its result is almost entirely
+the element array: 8 bytes of pointer per 2 bytes of input, 80 MB. An array
+built by `push` grows by doubling, and at the last growth the old buffer and
+the new one, twice as large, are live together: up to 3 × the final array.
+How much of the new buffer the kernel counts as resident varies by machine:
+`grow` (ten million pushes, no parsing) adds 220 MB on one machine where
+`grow-exact` (the same array allocated at its final size) adds 80 MB, and
+the parse of `flat` adds 147 MB on some CI runners and 226 MB on others. So
+the bound for `flat` and `e2e` is `12 × input + 32 MB`: the input, plus three
+times the 4-bytes-per-input-byte pointer array, plus slack. pydantic-core
+2.50.1 adds 150 MB on the same input. Run one kind per process: the peak is
 process-wide.
 
 * `flat`: `[1,1,...]`, 10 M small integers in 20 MB (pydantic-core 2.50.1:
@@ -29,7 +41,8 @@ process-wide.
   index must stay fast on them (`KeyIndex`). `collide-naive` inserts the same
   keys into a plain `Std.HashMap String Nat`, to show the attack is real.
 * `e2e`: the `flat` input as a server handles a request body: text in,
-  `from_json`, `to_json` out (bound: 10 × input + 32 MB).
+  `from_json`, `to_json` out (bound: 12 × input + 32 MB).
+* `grow`, `grow-exact`: the array-growth diagnostic above (no bound).
 -/
 
 def peakKB : IO Nat := do
@@ -94,7 +107,7 @@ def endToEnd (mb : Nat) : IO UInt32 := do
     let t2 ← IO.monoMsNow
     let peak ← peakKB
     let added := (peak - base) * 1024
-    let bound := 10 * body.utf8ByteSize + 32 * 1000000
+    let bound := 12 * body.utf8ByteSize + 32 * 1000000
     IO.println s!"e2e {body.utf8ByteSize / 1000000} MB: from_json + to_json {t2 - t} ms, peak {peak / 1024} MB (before {base / 1024} MB), {out.size} bytes out"
     if added > bound then
       IO.println s!"FAIL: the round trip added {added / 1000000} MB, over the bound {bound / 1000000} MB"
@@ -131,8 +144,23 @@ def collideNaive (passes : Nat) : IO UInt32 := do
   IO.println s!"collide-naive: {keys.size} keys x {passes} into Std.HashMap String Nat: {t2 - t} ms ({m.size} entries)"
   return 0
 
+/-- Array growth alone, no parsing: `mb`·500000 elements pushed one by one
+(`grow`) or into an array allocated at its final size (`grow-exact`). A
+diagnostic for how the machine accounts the doubling of a growing array. -/
+def grow (exact : Bool) (mb : Nat) : IO UInt32 := do
+  let n := mb * 500000
+  let base ← peakKB
+  let mut a : Array Json := if exact then Array.emptyWithCapacity n else #[]
+  for _ in [0:n] do
+    a := a.push .null
+  let peak ← peakKB
+  IO.println s!"grow{if exact then "-exact" else ""} {n} elements: peak {peak / 1024} MB (before {base / 1024} MB), added {(peak - base) / 1024} MB, size {a.size}"
+  return 0
+
 def main (args : List String) : IO UInt32 := do
   let kind := args.head?.getD "flat"
+  if kind == "grow" || kind == "grow-exact" then
+    return ← grow (kind == "grow-exact") ((args.drop 1).head?.bind String.toNat? |>.getD 20)
   let mb := (args.drop 1).head?.bind String.toNat? |>.getD 20
   let maxMs := (args.drop 2).head?.bind String.toNat?
   if kind == "e2e" then return ← endToEnd mb
@@ -153,7 +181,7 @@ def main (args : List String) : IO UInt32 := do
     let peak ← peakKB
     let out := (print v.val).val.size
     let added := (peak - base) * 1024
-    let bound := (if kind == "wide" then 10 else 8) * input.size + 32 * 1000000
+    let bound := (if kind == "flat" then 12 else if kind == "wide" then 10 else 8) * input.size + 32 * 1000000
     if kind == "collide" then
       match v.val with
       | .obj kvs =>
