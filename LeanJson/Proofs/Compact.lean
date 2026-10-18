@@ -206,7 +206,7 @@ theorem printWith_quiet : ∀ (v : Json) (d : Nat), AllQuiet (HasSpaceInString v
   | .arr (x :: xs), d => by
     have h1 := allQuiet_mono (printWith_quiet x (d + 1)) (Q := HasSpaceInString (.arr (x :: xs))) Or.inl
     have h2 := allQuiet_mono (printElems_quiet xs (d + 1)) (Q := HasSpaceInString (.arr (x :: xs))) Or.inr
-    simp only [printWith, nl_none o ho, List.nil_append, List.append_nil, allQuiet_cons,
+    simp only [printWith, nl_none o ho, List.append_nil, allQuiet_cons,
       allQuiet_append, allQuiet_nil, and_true]
     quiet_split
   | .obj [], d => by
@@ -219,7 +219,7 @@ theorem printWith_quiet : ∀ (v : Json) (d : Nat), AllQuiet (HasSpaceInString v
       (Q := HasSpaceInString (.obj ((k, v) :: kvs))) (fun h => Or.inr (Or.inl h))
     have h3 := allQuiet_mono (printMembers_quiet kvs (d + 1))
       (Q := HasSpaceInString (.obj ((k, v) :: kvs))) (fun h => Or.inr (Or.inr h))
-    simp only [printWith, nl_none o ho, colon_none o ho, List.nil_append, List.append_nil,
+    simp only [printWith, nl_none o ho, colon_none o ho, List.append_nil,
       allQuiet_cons, allQuiet_append, allQuiet_nil, and_true]
     quiet_split
 theorem printElems_quiet : ∀ (xs : List Json) (d : Nat), AllQuiet (HasSpaceInList xs) (printElems o d xs)
@@ -227,7 +227,7 @@ theorem printElems_quiet : ∀ (xs : List Json) (d : Nat), AllQuiet (HasSpaceInL
   | x :: xs, d => by
     have h1 := allQuiet_mono (printWith_quiet x d) (Q := HasSpaceInList (x :: xs)) Or.inl
     have h2 := allQuiet_mono (printElems_quiet xs d) (Q := HasSpaceInList (x :: xs)) Or.inr
-    simp only [printElems, nl_none o ho, List.nil_append, allQuiet_cons, allQuiet_append]
+    simp only [printElems, nl_none o ho, allQuiet_cons, allQuiet_append]
     quiet_split
 theorem printMembers_quiet : ∀ (kvs : List (String × Json)) (d : Nat),
     AllQuiet (HasSpaceInFields kvs) (printMembers o d kvs)
@@ -238,7 +238,7 @@ theorem printMembers_quiet : ∀ (kvs : List (String × Json)) (d : Nat),
       (fun h => Or.inr (Or.inl h))
     have h3 := allQuiet_mono (printMembers_quiet kvs d) (Q := HasSpaceInFields ((k, v) :: kvs))
       (fun h => Or.inr (Or.inr h))
-    simp only [printMembers, nl_none o ho, colon_none o ho, List.nil_append, allQuiet_cons,
+    simp only [printMembers, nl_none o ho, colon_none o ho, allQuiet_cons,
       allQuiet_append, allQuiet_nil, and_true]
 
     quiet_split

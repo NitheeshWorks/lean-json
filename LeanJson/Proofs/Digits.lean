@@ -224,26 +224,27 @@ theorem NumStop.digitStop {rest : List UInt8} (h : NumStop rest) : DigitStop res
   fun b hb => (h b hb).1
 
 theorem scanDigits_ext (bs : ByteArray) (rest : List UInt8) (hr : DigitStop rest) :
-    ∀ (ds : List Nat) (pos fuel cnt : Nat), (∀ d ∈ ds, d < 10) →
-      At bs pos (ds.map digitByte) rest → ds.length ≤ fuel →
-      scanDigits bs pos fuel cnt = (cnt + ds.length, pos + ds.length)
-  | [], pos, fuel, cnt, _, h, _ => by
-    cases fuel with
-    | zero => rfl
-    | succ f =>
-      unfold scanDigits
-      rw [At.nil h]
-      cases hh : rest.head? with
-      | none => rfl
-      | some b => simp [hr b hh]
-  | d :: ds, pos, fuel, cnt, hd, h, hf => by
-    obtain ⟨f, rfl⟩ : ∃ f, fuel = f + 1 := ⟨fuel - 1, by simp at hf; omega⟩
-    have hd10 : d < 10 := hd d (by simp)
+    ∀ (ds : List Nat) (pos cnt : Nat), (∀ d ∈ ds, d < 10) →
+      At bs pos (ds.map digitByte) rest →
+      scanDigits bs pos cnt = (cnt + ds.length, pos + ds.length)
+  | [], pos, cnt, _, h => by
     unfold scanDigits
-    rw [At.get h]
-    simp only [digitByte_isDigit ⟨d, hd10⟩, ↓reduceIte]
-    rw [scanDigits_ext bs rest hr ds (pos + 1) f _ (fun x hx => hd x (by simp [hx]))
-      (At.next h) (by simp at hf; omega)]
+    by_cases hlt : pos < bs.size
+    · rw [dite_eq_left hlt]
+      have hg := At.nil h
+      cases hh : rest.head? with
+      | none => rw [hh, getElem?_pos bs pos hlt] at hg; cases hg
+      | some b =>
+        rw [hh] at hg
+        rw [getElem_of_get hg hlt, ite_eq_right (by simp [hr b hh])]; rfl
+    · rw [dite_eq_right hlt]; rfl
+  | d :: ds, pos, cnt, hd, h => by
+    have hd10 : d < 10 := hd d (by simp)
+    have hg := At.get h
+    have hlt := lt_size_of_get hg
+    unfold scanDigits
+    rw [dite_eq_left hlt, getElem_of_get hg hlt, ite_eq_left (digitByte_isDigit ⟨d, hd10⟩)]
+    rw [scanDigits_ext bs rest hr ds (pos + 1) _ (fun x hx => hd x (by simp [hx])) (At.next h)]
     simp only [List.length_cons]
     rw [show cnt + 1 + ds.length = cnt + (ds.length + 1) by omega,
       show pos + 1 + ds.length = pos + (ds.length + 1) by omega]
@@ -261,38 +262,30 @@ theorem smallValue_ext {bs : ByteArray} {R : List UInt8} :
     rw [hv]
     exact smallValue_ext ds (start + 1) _ (fun x hx => hd x (by simp [hx])) (At.next h)
 
-theorem digitsValue_ext {bs : ByteArray} {R : List UInt8} :
-    ∀ (f : Nat) (ds : List Nat) (start : Nat), (∀ d ∈ ds, d < 10) →
-      At bs start (ds.map digitByte) R → ds.length ≤ f →
-      digitsValue bs f start ds.length = ofDigits ds
-  | 0, ds, start, _, _, hf => by
-    have : ds = [] := List.eq_nil_of_length_eq_zero (by omega)
-    subst this; rfl
-  | f + 1, ds, start, hd, h, hf => by
-    unfold digitsValue
-    by_cases hs : ds.length ≤ 16
-    · rw [ite_eq_left hs, smallValue_ext ds start 0 hd h]; rfl
-    · rw [ite_eq_right hs]
-      simp only
-      have hlen : ds.length / 2 = (ds.take (ds.length / 2)).length := by simp; omega
-      have hlen2 : ds.length - ds.length / 2 = (ds.drop (ds.length / 2)).length := by simp
-      have hsplit : ds.map digitByte = (ds.take (ds.length / 2)).map digitByte ++
-          (ds.drop (ds.length / 2)).map digitByte := by
-        rw [← List.map_append, List.take_append_drop]
-      rw [hsplit] at h
-      have h1 := h.assoc
-      have h2 := h.app
-      simp only [List.length_map] at h2
-      have e1 := digitsValue_ext f _ start (digits_take' hd _) h1 (by simp; omega)
-      have e2 := digitsValue_ext f _ _ (digits_drop' hd _) h2 (by simp; omega)
-      rw [← hlen] at e1 e2
-      rw [← hlen2] at e2
-      rw [e1, e2, hlen2, ← ofDigits_append, List.take_append_drop]
-where
-  digits_take' {ds : List Nat} (h : ∀ d ∈ ds, d < 10) (n : Nat) : ∀ d ∈ ds.take n, d < 10 :=
-    fun d hd => h d (List.mem_of_mem_take hd)
-  digits_drop' {ds : List Nat} (h : ∀ d ∈ ds, d < 10) (n : Nat) : ∀ d ∈ ds.drop n, d < 10 :=
-    fun d hd => h d (List.mem_of_mem_drop hd)
+theorem digitsValue_ext {bs : ByteArray} {R : List UInt8} (ds : List Nat) (start : Nat)
+    (hd : ∀ d ∈ ds, d < 10) (h : At bs start (ds.map digitByte) R) :
+    digitsValue bs start ds.length = ofDigits ds := by
+  rw [digitsValue]
+  by_cases hs : ds.length ≤ 16
+  · rw [ite_eq_left hs, smallValue_ext ds start 0 hd h]; rfl
+  · rw [ite_eq_right hs]
+    simp only
+    have hlen : ds.length / 2 = (ds.take (ds.length / 2)).length := by simp; omega
+    have hlen2 : ds.length - ds.length / 2 = (ds.drop (ds.length / 2)).length := by simp
+    have hsplit : ds.map digitByte = (ds.take (ds.length / 2)).map digitByte ++
+        (ds.drop (ds.length / 2)).map digitByte := by
+      rw [← List.map_append, List.take_append_drop]
+    rw [hsplit] at h
+    have h1 := h.assoc
+    have h2 := h.app
+    simp only [List.length_map] at h2
+    have e1 := digitsValue_ext _ start (fun d hd' => hd d (List.mem_of_mem_take hd')) h1
+    have e2 := digitsValue_ext _ _ (fun d hd' => hd d (List.mem_of_mem_drop hd')) h2
+    rw [← hlen] at e1 e2
+    rw [← hlen2] at e2
+    rw [e1, e2, hlen2, ← ofDigits_append, List.take_append_drop]
+termination_by ds.length
+decreasing_by all_goals simp; omega
 
 /-! ## Normal form -/
 

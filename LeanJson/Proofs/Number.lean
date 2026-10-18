@@ -32,10 +32,10 @@ theorem digits1_ext {bs : ByteArray} {pos : Nat} {ds : List Nat} {rest : List UI
     (hd : Digits1 ds) (h : At bs pos (ds.map digitByte) rest) (hr : DigitStop rest) :
     digits1 bs pos = .ok (ofDigits ds, ds.length, pos + ds.length) := by
   unfold digits1
-  rw [scanDigits_ext bs rest hr ds pos bs.size 0 hd.2 h (by simpa using fuel_of_at h)]
+  rw [scanDigits_ext bs rest hr ds pos 0 hd.2 h]
   have : ds.length ≠ 0 := by simpa using hd.1
   simp only [Nat.zero_add, this, ↓reduceIte]
-  rw [digitsValue_ext ds.length ds pos hd.2 h (Nat.le_refl _)]
+  rw [digitsValue_ext ds pos hd.2 h]
 
 theorem parseIntPart_ext {bs : ByteArray} {pos : Nat} {ds : List Nat} {rest : List UInt8}
     (hd : IntDigits ds) (h : At bs pos (ds.map digitByte) rest) (hr : DigitStop rest) :
@@ -60,9 +60,9 @@ theorem parseIntPart_ext {bs : ByteArray} {pos : Nat} {ds : List Nat} {rest : Li
         have : digitByte d ≠ 48 := fun e => hz ((digitByte_zero_iff ⟨d, hd10⟩).mp e)
         simpa using this
       simp only [hne48, Bool.false_eq_true, ↓reduceIte, digitByte_isDigit ⟨d, hd10⟩]
-      rw [scanDigits_ext bs rest hr (d :: t) pos bs.size 0 h10 h (by simpa using fuel_of_at h)]
+      rw [scanDigits_ext bs rest hr (d :: t) pos 0 h10 h]
       simp only [Nat.zero_add]
-      rw [digitsValue_ext _ (d :: t) pos h10 h (Nat.le_refl _)]
+      rw [digitsValue_ext (d :: t) pos h10 h]
 
 /-- The bytes of an optional fraction. -/
 def fracBytes : Option (List Nat) → List UInt8
@@ -206,13 +206,13 @@ theorem parseNumber_shape (cfg : ParseCfg) {bs : ByteArray} {pos : Nat} (sneg : 
       rw [At.get h]
       have := (digitByte_ne ⟨d, hd10⟩).2.2.2.1
       simpa using this
-    · simp only [↓reduceIte, List.cons_append, List.singleton_append] at h
+    · simp only [↓reduceIte, List.cons_append] at h
       rw [At.get h]; rfl
   have h0 : At bs (pos + (if sneg then 1 else 0)) (ip.map digitByte) (fracBytes fp ++ expBytes ex ++ rest) := by
     cases sneg
     · simp only [Bool.false_eq_true, ↓reduceIte, List.nil_append] at h
       simpa [List.append_assoc] using h.assoc.assoc
-    · simp only [↓reduceIte, List.cons_append, List.singleton_append] at h
+    · simp only [↓reduceIte, List.cons_append] at h
       have := h.next
       simpa [List.append_assoc] using this.assoc.assoc
   have hI := parseIntPart_ext hip h0 (digitStop_frac_exp fp ex rest hr)

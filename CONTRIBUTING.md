@@ -32,9 +32,10 @@ be a Hoare triple over a heap.
   trip or a membership, as `{r // Post r}` or `Except Err {r // Post r}`.
 * **Refinement types are subtypes with `Decidable` predicates**, so the same
   predicate is checked at runtime (`if h : P x`) and used in proofs.
-* **Totality.** No `partial def` or `unsafe` under `LeanJson/`. Byte parsers recurse
-  on a `Nat` fuel equal to the remaining input, with a progress lemma per
-  production.
+* **Totality.** No `partial def` or `unsafe` under `LeanJson/`, and no fuel in
+  the parser: scanners recurse on `bs.size - pos`, and the value parser returns
+  `Step`s (value, next position, and the proofs `pos < next ≤ size`), so its
+  mutual recursion is well founded on the remaining input.
 * **`_ext` lemmas.** A decoder lemma holds on any continuation of the buffer and
   reports the final position, so field lemmas compose. Do not add a lemma that
   only holds at the end of a buffer; it is unusable one field later.
@@ -54,7 +55,8 @@ be a Hoare triple over a heap.
 | `Proofs/Number.lean` | `parseNumber_printNumber_ext`, via one shape lemma for ryu's five layouts |
 | `Proofs/String.lean` | `parseString_printString_ext`, via `strStep` (one character, every escape form) |
 | `Proofs/Value.lean` | `parseValue_ext`, by mutual structural recursion over values, element lists and member lists |
-| `Proofs/Progress.lean`, `Proofs/Fuel.lean` | `step_progress`, `parse_fuel_enough`, `parse_fuel_mono` |
+| `RepoImpl/Step.lean` | progress of every lexical production (`Adv`), used by the parser's types |
+| `Proofs/Unfold.lean` | the parser's equations with progress proofs erased (`parseValueAt_eq`, …), via two `Step` lemmas |
 | `Proofs/Codec.lean` | the `Codec` theory (`decode_encode`, `encode_injective`), its instances, `parse_print`, `print_injective`, `parse_canonical`, config relaxation |
 | `Proofs/Compact.lean` | `print_compact` |
 | `Proofs/Builder.lean` | `printBA_eq`: the linear printer equals the specification |
@@ -68,10 +70,13 @@ numbers and values are instances (`stringCodec`, `numberCodec`,
 general lemmas. When the shared theory library of the stack exists, `Codec`
 moves there unchanged.
 
-The parser is total by structural recursion on fuel, with `fuelFor bs pos =
-2 * (size - pos) + 1` proved always sufficient. A fuel-free, progress-indexed
-parser monad (STYLE.md, "Total parsing") would remove the fuel lemmas; that
-rewrite is planned with the shared library, and the API does not change.
+The parser is progress-indexed (STYLE.md, "Total parsing"): `Step bs pos α`
+carries the value, the next position and the proofs that it is past `pos`
+and within the buffer; `Step.lift` turns a lexical production plus its
+progress lemma into a step, `Step.cast` relabels it. Totality is therefore a
+property of the types, and `step_progress` is read off them. The equations
+in `Proofs/Unfold.lean` erase the proofs once, so the round-trip and
+relaxation proofs rewrite with ordinary equations.
 
 ### Tested, not proved
 
@@ -89,8 +94,7 @@ Listed here with the reason, and in `docs/traceability.toml` with
 * **Error kinds and offsets** for malformed input: the proofs cover what valid
   input does; what each malformed input reports is pinned against the
   released pydantic-core 2.50.1 in `tests/Conformance.lean` (`from_json
-  (2.50.1)` cases), and `tests/Props.lean` checks offsets stay in bounds and
-  no fuel failure appears.
+  (2.50.1)` cases), and `tests/Props.lean` checks offsets stay in bounds.
 * **The `Lean.Json` bridge** (`Json.toLean`, `Json.ofLean`): goes through core's
   `partial` printer, so nothing about it is provable; tested on its common
   fragment.
@@ -143,7 +147,8 @@ gives Python `dict` semantics (first position, last value).
 * **NaN / Infinity** are not representable and are rejected by the parser.
   Deviation: `from_json` accepts them by default (`allow_inf_nan=True`).
 * **No recursion limit.** jiter stops at depth 200; this parser is total by
-  fuel and has no depth limit. Deviation.
+  well-founded recursion on the input and has no depth limit, so
+  `recursion limit exceeded` is never reported. Deviation.
 * **Error messages** use jiter's texts and its line/column convention
   (`EOF while parsing a string at line 1 column 7`).
 

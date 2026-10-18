@@ -1,14 +1,13 @@
-import LeanJson.RepoImpl.Print
+import LeanJson.RepoImpl.Step
 
 /-!
-# RepoImpl: the parser
+# RepoImpl: the value parser
 
-A total RFC 8259 parser over a `ByteArray` with a `Nat` cursor. Every
-function recurses structurally on a fuel argument. The scanners (whitespace,
-digits, string bodies) take fuel `bs.size`, which is always enough because
-each step consumes a byte; the value parser takes the caller's fuel, and
-the public entry points pass `bs.size + 1`, which is enough for every input
-(`step_progress`, `parse_fuel_enough` in `Proofs/`).
+A total RFC 8259 parser over a `ByteArray` with a `Nat` cursor, with no fuel:
+every production returns a `Step`, whose type records that the cursor moved
+forward and stayed in the buffer, and the mutual recursion is well founded on
+the remaining input (`termination_by bs.size - pos`, with element and member
+lists ranked above the values they contain).
 
 Behaviour follows jiter, pydantic-core's parser: whitespace is space, tab,
 LF, CR; numbers follow the RFC grammar (no leading zeros, no `+`, no bare
@@ -20,323 +19,175 @@ are kept in order. Error kinds and offsets follow jiter's `JsonErrorType`.
 
 namespace LeanJson
 
-/-- JSON whitespace: space, tab, line feed, carriage return. -/
-def isWs (b : UInt8) : Bool := b == 32 || b == 9 || b == 10 || b == 13
+/-- A successful parse from `pos`: the value and the cursor after it, which is
+strictly further on and within the buffer. Progress is in the type. -/
+structure Step (bs : ByteArray) (pos : Nat) (α : Type) where
+  val : α
+  next : Nat
+  lt : pos < next
+  le : next ≤ bs.size
 
-/-- The first position at or after `pos` that is not whitespace. -/
-def skipWs (bs : ByteArray) : (pos fuel : Nat) → Nat
-  | pos, 0 => pos
-  | pos, f + 1 =>
-    match bs[pos]? with
-    | some b => if isWs b then skipWs bs (pos + 1) f else pos
-    | none => pos
+/-- Forget the progress proof. -/
+def Step.out {bs : ByteArray} {pos : Nat} {α : Type} (s : Step bs pos α) : α × Nat := (s.val, s.next)
 
-/-- Match a fixed literal (`rue`, `ull`, ...) at `pos`; the position after
-it. A mismatching byte is `expected ident` (jiter), end of input is `EOF
-while parsing a value`. -/
-def expectLit (bs : ByteArray) : (pos : Nat) → List UInt8 → Except ParseErr Nat
-  | pos, [] => .ok pos
-  | pos, c :: cs =>
-    match bs[pos]? with
-    | none => .error ⟨.eofWhileParsingValue, pos⟩
-    | some b => if b == c then expectLit bs (pos + 1) cs else .error ⟨.expectedSomeIdent, pos⟩
+/-- A step from a later position is a step from an earlier one. -/
+def Step.from {bs : ByteArray} {p q : Nat} {α : Type} (s : Step bs q α) (h : p ≤ q) : Step bs p α :=
+  ⟨s.val, s.next, Nat.lt_of_le_of_lt h s.lt, s.le⟩
 
-/-- Count a run of decimal digits from `pos`: (count, position after). -/
-def scanDigits (bs : ByteArray) : (pos fuel cnt : Nat) → Nat × Nat
-  | pos, 0, cnt => (cnt, pos)
-  | pos, f + 1, cnt =>
-    match bs[pos]? with
-    | some b => if isDigit b then scanDigits bs (pos + 1) f (cnt + 1) else (cnt, pos)
-    | none => (cnt, pos)
+/-- A lexical production's result as a step from where it started: the
+progress fact comes from the production's own lemma. -/
+def Step.lift {bs : ByteArray} {q : Nat} {α : Type} :
+    (r : Except ParseErr (α × Nat)) → (∀ x, r = .ok x → Adv bs q x.2 ∧ q < x.2) →
+      Except ParseErr (Step bs q α)
+  | .ok x, h => .ok ⟨x.1, x.2, (h x rfl).2, (h x rfl).1.2 (h x rfl).2⟩
+  | .error e, _ => .error e
 
-/-- The digit at byte `i` (`0` past the end). -/
-def digitAt (bs : ByteArray) (i : Nat) : Nat := (bs[i]?.getD 48).toNat - 48
+/-- Relabel a step's value and restart it from an earlier position. -/
+def Step.cast {bs : ByteArray} {p q : Nat} {α β : Type} (s : Step bs q α) (f : α → β) (h : p ≤ q) :
+    Step bs p β :=
+  ⟨f s.val, s.next, Nat.lt_of_le_of_lt h s.lt, s.le⟩
 
-/-- The value of `len` digits from `start`, left to right. -/
-def smallValue (bs : ByteArray) : (start len acc : Nat) → Nat
-  | _, 0, acc => acc
-  | start, k + 1, acc => smallValue bs (start + 1) k (acc * 10 + digitAt bs start)
+theorem skipWs_ge (bs : ByteArray) (pos : Nat) : pos ≤ skipWs bs pos := (skipWs_adv bs pos).1
 
-/-- The value of the `len` digits from `start`, by divide and conquer, so a
-long digit run costs a few big multiplications rather than one per digit. -/
-def digitsValue (bs : ByteArray) : (fuel start len : Nat) → Nat
-  | 0, _, _ => 0
-  | f + 1, start, len =>
-    if len ≤ 16 then smallValue bs start len 0
-    else
-      let h := len / 2
-      digitsValue bs f start h * 10 ^ (len - h) + digitsValue bs f (start + h) (len - h)
+theorem numStep {cfg : ParseCfg} {bs : ByteArray} {q : Nat} :
+    ∀ x, (parseNumber cfg bs q).map (fun y => (Json.num y.1, y.2)) = .ok x → Adv bs q x.2 ∧ q < x.2 := by
+  intro x h
+  cases hn : parseNumber cfg bs q with
+  | error e => rw [hn] at h; cases h
+  | ok y => rw [hn] at h; cases h; exact parseNumber_adv hn
 
-/-- At least one digit at `pos`: (value, count, position after), else an error
-(end of input: `EOF while parsing a value`; anything else: `invalid number`). -/
-def digits1 (bs : ByteArray) (pos : Nat) : Except ParseErr (Nat × Nat × Nat) :=
-  let r := scanDigits bs pos bs.size 0
-  if r.1 = 0 then
-    match bs[pos]? with
-    | none => .error ⟨.eofWhileParsingValue, pos⟩
-    | some _ => .error ⟨.invalidNumber, pos⟩
-  else .ok (digitsValue bs r.1 pos r.1, r.1, r.2)
-
-/-- The integer part: `0`, or a nonzero digit followed by digits. A leading
-zero followed by a digit is `invalid number`. Returns (value, position). -/
-def parseIntPart (bs : ByteArray) (pos : Nat) : Except ParseErr (Nat × Nat) :=
-  match bs[pos]? with
-  | none => .error ⟨.eofWhileParsingValue, pos⟩
-  | some b =>
-    if b == 48 then
-      match bs[pos + 1]? with
-      | some c => if isDigit c then .error ⟨.invalidNumber, pos + 1⟩ else .ok (0, pos + 1)
-      | none => .ok (0, pos + 1)
-    else if isDigit b then
-      let r := scanDigits bs pos bs.size 0
-      .ok (digitsValue bs r.1 pos r.1, r.2)
-    else .error ⟨.invalidNumber, pos⟩
-
-/-- An optional fraction `.digits`: (value, digit count, position), count 0
-when absent. -/
-def parseFrac (bs : ByteArray) (pos : Nat) : Except ParseErr (Nat × Nat × Nat) :=
-  match bs[pos]? with
-  | some 46 => digits1 bs (pos + 1)
-  | _ => .ok (0, 0, pos)
-
-/-- An optional exponent `e[+-]digits`: (present, value, position). -/
-def parseExp (bs : ByteArray) (pos : Nat) : Except ParseErr (Bool × Int × Nat) :=
-  match bs[pos]? with
-  | some b =>
-    if b == 101 || b == 69 then
-      match bs[pos + 1]? with
-      | some 45 => do
-        let (v, _, p) ← digits1 bs (pos + 2)
-        .ok (true, -(v : Int), p)
-      | some 43 => do
-        let (v, _, p) ← digits1 bs (pos + 2)
-        .ok (true, (v : Int), p)
-      | _ => do
-        let (v, _, p) ← digits1 bs (pos + 1)
-        .ok (true, (v : Int), p)
-    else .ok (false, 0, pos)
-  | none => .ok (false, 0, pos)
-
-/-- Assemble a number from its parts: an integer when there is neither a
-fraction nor an exponent, otherwise a normalised decimal. -/
-def mkNumber (neg : Bool) (iv fv fc : Nat) (hasExp : Bool) (ev : Int) : Number :=
-  if fc = 0 ∧ hasExp = false then .int (if neg then -(iv : Int) else iv)
-  else .float (Decimal.normalize neg (iv * 10 ^ fc + fv) (ev - fc))
-
-/-- Parser configuration. `maxIntLen` is jiter's limit on the length of a
-number's sign and integer digits (4300, Python's `int` digit limit); a longer
-literal is `number out of range`. `none` lifts the limit (the lossless
-parser the round-trip theorems are stated for). -/
-structure ParseCfg where
-  maxIntLen : Option Nat := some 4300
-  deriving DecidableEq, Repr, Inhabited
-
-/-- The configuration with no limits. -/
-def ParseCfg.lossless : ParseCfg := { maxIntLen := none }
-
-/-- Whether an integer part spanning `n` bytes (sign included) is allowed. -/
-def ParseCfg.intLenOk (cfg : ParseCfg) (n : Nat) : Bool :=
-  match cfg.maxIntLen with
-  | none => true
-  | some L => n ≤ L
-
-/-- A number at `pos` (which holds `-` or a digit). -/
-def parseNumber (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) : Except ParseErr (Number × Nat) := do
-  let neg := bs[pos]? == some 45
-  let p0 := if neg then pos + 1 else pos
-  let (iv, p1) ← parseIntPart bs p0
-  if cfg.intLenOk (p1 - pos) = false then
-    .error ⟨.numberOutOfRange, pos + cfg.maxIntLen.getD 0 + 1⟩
-  else
-    let (fv, fc, p2) ← parseFrac bs p1
-    let (he, ev, p3) ← parseExp bs p2
-    .ok (mkNumber neg iv fv fc he ev, p3)
-
-/-- One hex digit at `i`. -/
-def hexAt (bs : ByteArray) (i : Nat) : Except ParseErr Nat :=
-  match bs[i]? with
-  | none => .error ⟨.eofWhileParsingString, i⟩
-  | some b =>
-    match hexVal b with
-    | some v => .ok v
-    | none => .error ⟨.invalidEscape, i⟩
-
-/-- Four hex digits at `pos`. Fewer than four bytes left is `EOF while
-parsing a string` at the end of input, as jiter reports it. -/
-def parseHex4 (bs : ByteArray) (pos : Nat) : Except ParseErr Nat :=
-  if bs.size < pos + 4 then .error ⟨.eofWhileParsingString, bs.size⟩ else
-  match hexAt bs pos, hexAt bs (pos + 1), hexAt bs (pos + 2), hexAt bs (pos + 3) with
-  | .ok a, .ok b, .ok c, .ok d => .ok (a * 4096 + b * 256 + c * 16 + d)
-  | .error e, _, _, _ => .error e
-  | .ok _, .error e, _, _ => .error e
-  | .ok _, .ok _, .error e, _ => .error e
-  | .ok _, .ok _, .ok _, .error e => .error e
-
-/-- The escape sequence after a backslash at `pos - 1`: the character and the
-position after the escape. -/
-def parseEscape (bs : ByteArray) (pos : Nat) : Except ParseErr (Char × Nat) :=
-  match bs[pos]? with
-  | none => .error ⟨.eofWhileParsingString, pos⟩
-  | some b =>
-    if b == 34 then .ok ('"', pos + 1)
-    else if b == 92 then .ok ('\\', pos + 1)
-    else if b == 47 then .ok ('/', pos + 1)
-    else if b == 98 then .ok (Char.ofNat 8, pos + 1)
-    else if b == 102 then .ok (Char.ofNat 12, pos + 1)
-    else if b == 110 then .ok ('\n', pos + 1)
-    else if b == 114 then .ok ('\r', pos + 1)
-    else if b == 116 then .ok ('\t', pos + 1)
-    else if b == 117 then do
-      let u ← parseHex4 bs (pos + 1)
-      if 0xDC00 ≤ u ∧ u < 0xE000 then .error ⟨.loneLeadingSurrogateInHexEscape, pos + 4⟩
-      else if 0xD800 ≤ u ∧ u < 0xDC00 then
-        match bs[pos + 5]? with
-        | none => .error ⟨.eofWhileParsingString, pos + 5⟩
-        | some 92 =>
-          match bs[pos + 6]? with
-          | none => .error ⟨.eofWhileParsingString, pos + 6⟩
-          | some 117 => do
-            let l ← parseHex4 bs (pos + 7)
-            if 0xDC00 ≤ l ∧ l < 0xE000 then
-              .ok (Char.ofNat (0x10000 + (u - 0xD800) * 1024 + (l - 0xDC00)), pos + 11)
-            else .error ⟨.loneLeadingSurrogateInHexEscape, pos + 10⟩
-          | some _ => .error ⟨.unexpectedEndOfHexEscape, pos + 6⟩
-        | some _ => .error ⟨.unexpectedEndOfHexEscape, pos + 5⟩
-      else .ok (Char.ofNat u, pos + 5)
-    else .error ⟨.invalidEscape, pos⟩
-
-/-- The body of a string literal from `pos` (just after the opening quote)
-to the closing quote; the characters (reversed onto `acc`) and the position
-after the closing quote. -/
-def parseStrBody (bs : ByteArray) : (pos fuel : Nat) → List Char → Except ParseErr (List Char × Nat)
-  | pos, 0, _ => .error ⟨.eofWhileParsingString, pos⟩
-  | pos, f + 1, acc =>
-    match bs[pos]? with
-    | none => .error ⟨.eofWhileParsingString, pos⟩
-    | some b =>
-      if b == 34 then .ok (acc.reverse, pos + 1)
-      else if b == 92 then
-        match parseEscape bs (pos + 1) with
-        | .ok (c, p) => parseStrBody bs p f (c :: acc)
-        | .error e => .error e
-      else if b < 32 then .error ⟨.controlCharacterWhileParsingString, pos⟩
-      else if b < 128 then parseStrBody bs (pos + 1) f (Char.ofNat b.toNat :: acc)
-      else
-        match bs.utf8DecodeChar? pos with
-        | some c => parseStrBody bs (pos + c.utf8Size) f (c :: acc)
-        | none => .error ⟨.invalidUnicodeCodePoint, pos + 1⟩
-
-/-- A string literal whose opening quote is at `pos`. -/
-def parseString (bs : ByteArray) (pos : Nat) : Except ParseErr (String × Nat) :=
-  match parseStrBody bs (pos + 1) bs.size [] with
-  | .ok (cs, p) => .ok (String.ofList cs, p)
-  | .error e => .error e
+theorem litStep {bs : ByteArray} {q : Nat} {lit : List UInt8} (v : Json) (hq : q < bs.size) :
+    ∀ x, (expectLit bs (q + 1) lit).map (fun p => (v, p)) = .ok x → Adv bs q x.2 ∧ q < x.2 := by
+  intro x h
+  cases hl : expectLit bs (q + 1) lit with
+  | error e => rw [hl] at h; cases h
+  | ok p =>
+    rw [hl] at h; cases h
+    have a := expectLit_adv bs _ _ _ hl
+    exact ⟨(Adv.of_lt (Nat.le_succ q) hq).trans a, by have := a.1; simp; omega⟩
 
 mutual
-/-- A value at `pos` after optional whitespace: the value and the position
-just after it. -/
-def parseValueWith (cfg : ParseCfg) (bs : ByteArray) : (pos fuel : Nat) → Except ParseErr (Json × Nat)
-  | pos, 0 => .error ⟨.recursionLimitExceeded, pos⟩
-  | pos0, n + 1 =>
-    let pos := skipWs bs pos0 bs.size
-    match bs[pos]? with
-    | none => .error ⟨.eofWhileParsingValue, pos⟩
-    | some b =>
-      if b == 34 then
-        match parseString bs pos with
-        | .ok (s, p) => .ok (.str s, p)
-        | .error e => .error e
-      else if b == 91 then
-        let p := skipWs bs (pos + 1) bs.size
-        match bs[p]? with
-        | none => .error ⟨.eofWhileParsingList, p⟩
-        | some 93 => .ok (.arr [], p + 1)
-        | some _ => parseElems cfg bs p n []
-      else if b == 123 then
-        let p := skipWs bs (pos + 1) bs.size
-        match bs[p]? with
-        | none => .error ⟨.eofWhileParsingObject, p⟩
-        | some 125 => .ok (.obj [], p + 1)
-        | some 34 => parseMembers cfg bs p n []
-        | some _ => .error ⟨.keyMustBeAString, p⟩
-      else if b == 116 then
-        match expectLit bs (pos + 1) [114, 117, 101] with
-        | .ok p => .ok (.bool true, p)
-        | .error e => .error e
-      else if b == 102 then
-        match expectLit bs (pos + 1) [97, 108, 115, 101] with
-        | .ok p => .ok (.bool false, p)
-        | .error e => .error e
-      else if b == 110 then
-        match expectLit bs (pos + 1) [117, 108, 108] with
-        | .ok p => .ok (.null, p)
-        | .error e => .error e
-      else if b == 45 || isDigit b then
-        match parseNumber cfg bs pos with
-        | .ok (x, p) => .ok (.num x, p)
-        | .error e => .error e
-      else .error ⟨.expectedSomeValue, pos⟩
+/-- A value at `pos` after optional whitespace. -/
+def parseValueWith (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) : Except ParseErr (Step bs pos Json) :=
+  let q := skipWs bs pos
+  have hq : pos ≤ q := skipWs_ge bs pos
+  if hqs : q < bs.size then
+    let b := bs[q]
+    if b == 34 then
+      (Step.lift (parseString bs q) (fun _ h => parseString_adv h)).map (·.cast .str hq)
+    else if b == 91 then
+      let p := skipWs bs (q + 1)
+      have hp : q + 1 ≤ p := skipWs_ge bs (q + 1)
+      if hps : p < bs.size then
+        if bs[p] == 93 then .ok ⟨.arr [], p + 1, by omega, by omega⟩
+        else (parseElems cfg bs p []).map (·.cast id (by omega))
+      else .error ⟨.eofWhileParsingList, p⟩
+    else if b == 123 then
+      let p := skipWs bs (q + 1)
+      have hp : q + 1 ≤ p := skipWs_ge bs (q + 1)
+      if hps : p < bs.size then
+        if bs[p] == 125 then .ok ⟨.obj [], p + 1, by omega, by omega⟩
+        else if bs[p] == 34 then (parseMembers cfg bs p []).map (·.cast id (by omega))
+        else .error ⟨.keyMustBeAString, p⟩
+      else .error ⟨.eofWhileParsingObject, p⟩
+    else if b == 116 then
+      (Step.lift _ (litStep (lit := [114, 117, 101]) (.bool true) hqs)).map (·.cast id hq)
+    else if b == 102 then
+      (Step.lift _ (litStep (lit := [97, 108, 115, 101]) (.bool false) hqs)).map (·.cast id hq)
+    else if b == 110 then
+      (Step.lift _ (litStep (lit := [117, 108, 108]) .null hqs)).map (·.cast id hq)
+    else if b == 45 || isDigit b then
+      (Step.lift _ (numStep (cfg := cfg))).map (·.cast id hq)
+    else .error ⟨.expectedSomeValue, q⟩
+  else .error ⟨.eofWhileParsingValue, q⟩
+termination_by (bs.size - pos, 0)
+decreasing_by
+  all_goals
+    simp only [Prod.lex_def]
+    simp only [q, p] at hq hqs hp hps ⊢
+    omega
 /-- Array elements from `pos` (an element is due); `acc` holds the elements
 so far, reversed. -/
-def parseElems (cfg : ParseCfg) (bs : ByteArray) : (pos fuel : Nat) → List Json → Except ParseErr (Json × Nat)
-  | pos, 0, _ => .error ⟨.recursionLimitExceeded, pos⟩
-  | pos, n + 1, acc =>
-    match parseValueWith cfg bs pos n with
-    | .error e => .error e
-    | .ok (v, p1) =>
-      let p := skipWs bs p1 bs.size
-      match bs[p]? with
-      | none => .error ⟨.eofWhileParsingList, p⟩
-      | some 44 =>
-        let q := skipWs bs (p + 1) bs.size
+def parseElems (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) (acc : List Json) :
+    Except ParseErr (Step bs pos Json) :=
+  match parseValueWith cfg bs pos with
+  | .error e => .error e
+  | .ok s =>
+    have hs : pos < s.next := s.lt
+    let p := skipWs bs s.next
+    have hp : s.next ≤ p := skipWs_ge bs s.next
+    if hps : p < bs.size then
+      if bs[p] == 44 then
+        let q := skipWs bs (p + 1)
+        have hq : p + 1 ≤ q := skipWs_ge bs (p + 1)
         if bs[q]? == some 93 then .error ⟨.trailingComma, q⟩
-        else parseElems cfg bs q n (v :: acc)
-      | some 93 => .ok (.arr (v :: acc).reverse, p + 1)
-      | some _ => .error ⟨.expectedListCommaOrEnd, p⟩
+        else (parseElems cfg bs q (s.val :: acc)).map (·.cast id (by omega))
+      else if bs[p] == 93 then .ok ⟨.arr (s.val :: acc).reverse, p + 1, by omega, by omega⟩
+      else .error ⟨.expectedListCommaOrEnd, p⟩
+    else .error ⟨.eofWhileParsingList, p⟩
+termination_by (bs.size - pos, 1)
+decreasing_by
+  all_goals simp only [Prod.lex_def]
+  · simp
+  · simp only [p, q] at hp hq hs hps ⊢
+    omega
 /-- Object members from `pos` (which holds the opening quote of a key);
 `acc` holds the members so far, reversed. -/
-def parseMembers (cfg : ParseCfg) (bs : ByteArray) : (pos fuel : Nat) → List (String × Json) → Except ParseErr (Json × Nat)
-  | pos, 0, _ => .error ⟨.recursionLimitExceeded, pos⟩
-  | pos, n + 1, acc =>
-    match parseString bs pos with
-    | .error e => .error e
-    | .ok (k, p1) =>
-      let p := skipWs bs p1 bs.size
-      match bs[p]? with
-      | none => .error ⟨.eofWhileParsingObject, p⟩
-      | some 58 =>
-        match parseValueWith cfg bs (p + 1) n with
+def parseMembers (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) (acc : List (String × Json)) :
+    Except ParseErr (Step bs pos Json) :=
+  match Step.lift (parseString bs pos) (fun _ h => parseString_adv h) with
+  | .error e => .error e
+  | .ok k =>
+    have hk : pos < k.next := k.lt
+    let p := skipWs bs k.next
+    have hp : k.next ≤ p := skipWs_ge bs k.next
+    if hps : p < bs.size then
+      if bs[p] == 58 then
+        match parseValueWith cfg bs (p + 1) with
         | .error e => .error e
-        | .ok (v, p2) =>
-          let p3 := skipWs bs p2 bs.size
-          match bs[p3]? with
-          | none => .error ⟨.eofWhileParsingObject, p3⟩
-          | some 44 =>
-            let q := skipWs bs (p3 + 1) bs.size
-            match bs[q]? with
-            | none => .error ⟨.eofWhileParsingValue, q⟩
-            | some 34 => parseMembers cfg bs q n ((k, v) :: acc)
-            | some 125 => .error ⟨.trailingComma, q⟩
-            | some _ => .error ⟨.keyMustBeAString, q⟩
-          | some 125 => .ok (.obj ((k, v) :: acc).reverse, p3 + 1)
-          | some _ => .error ⟨.expectedObjectCommaOrEnd, p3⟩
-      | some _ => .error ⟨.expectedColon, p⟩
+        | .ok s =>
+          have hs : p + 1 < s.next := s.lt
+          let p3 := skipWs bs s.next
+          have h3 : s.next ≤ p3 := skipWs_ge bs s.next
+          if hp3 : p3 < bs.size then
+            if bs[p3] == 44 then
+              let q := skipWs bs (p3 + 1)
+              have hq : p3 + 1 ≤ q := skipWs_ge bs (p3 + 1)
+              if hqs : q < bs.size then
+                if bs[q] == 34 then
+                  (parseMembers cfg bs q ((k.val, s.val) :: acc)).map (·.cast id (by omega))
+                else if bs[q] == 125 then .error ⟨.trailingComma, q⟩
+                else .error ⟨.keyMustBeAString, q⟩
+              else .error ⟨.eofWhileParsingValue, q⟩
+            else if bs[p3] == 125 then
+              .ok ⟨.obj ((k.val, s.val) :: acc).reverse, p3 + 1, by omega, by omega⟩
+            else .error ⟨.expectedObjectCommaOrEnd, p3⟩
+          else .error ⟨.eofWhileParsingObject, p3⟩
+      else .error ⟨.expectedColon, p⟩
+    else .error ⟨.eofWhileParsingObject, p⟩
+termination_by (bs.size - pos, 1)
+decreasing_by
+  all_goals simp only [Prod.lex_def]
+  · simp only [p] at hp hps ⊢
+    omega
+  · simp only [p, p3, q] at hp h3 hq hs hqs ⊢
+    omega
 end
 
-/-- The value parser with jiter's default limits. -/
-def parseValue (bs : ByteArray) (pos fuel : Nat) : Except ParseErr (Json × Nat) :=
-  parseValueWith {} bs pos fuel
+/-- The value parser with its progress forgotten: value and end position. -/
+def parseValueAt (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) : Except ParseErr (Json × Nat) :=
+  (parseValueWith cfg bs pos).map Step.out
 
-/-- The fuel the entry points pass: always enough (`parse_fuel_enough`). -/
-def fuelFor (bs : ByteArray) (pos : Nat) : Nat := 2 * (bs.size - pos) + 1
+/-- The value parser with jiter's default limits. -/
+def parseValue (bs : ByteArray) (pos : Nat) : Except ParseErr (Json × Nat) := parseValueAt {} bs pos
 
 /-- A whole document: optional whitespace, one value, optional whitespace,
 end of input (else `trailing characters`). -/
 def parseDocumentWith (cfg : ParseCfg) (bs : ByteArray) : Except ParseErr Json :=
-  match parseValueWith cfg bs 0 (fuelFor bs 0) with
+  match parseValueAt cfg bs 0 with
   | .error e => .error e
   | .ok (v, p) =>
-    let q := skipWs bs p bs.size
+    let q := skipWs bs p
     if q < bs.size then .error ⟨.trailingCharacters, q⟩ else .ok v
 
 /-- `parseDocumentWith` with jiter's default limits: what `from_json` does. -/
@@ -346,15 +197,14 @@ def parseDocument (bs : ByteArray) : Except ParseErr Json := parseDocumentWith {
 1-based column of the byte at `offset`, or for an offset at or past the end,
 the length of the last line. -/
 def lineCol (bs : ByteArray) (offset : Nat) : Nat × Nat :=
-  let rec go : (i fuel line start : Nat) → Nat × Nat
-    | i, 0, line, start => (line, i - start)
-    | i, f + 1, line, start =>
-      match bs[i]? with
-      | none => (line, i - start)
-      | some b =>
-        let (line, start) := if b == 10 then (line + 1, i + 1) else (line, start)
-        if i = offset then (line, i + 1 - start) else go (i + 1) f line start
-  go 0 (bs.size + 1) 1 0
+  go 0 1 0
+where
+  go (i line start : Nat) : Nat × Nat :=
+    if h : i < bs.size then
+      let (line, start) := if bs[i] == 10 then (line + 1, i + 1) else (line, start)
+      if i = offset then (line, i + 1 - start) else go (i + 1) line start
+    else (line, i - start)
+  termination_by bs.size - i
 
 /-- A low-level error with jiter's line and column attached. -/
 def ParseErr.toJsonError (bs : ByteArray) (e : ParseErr) : JsonError :=

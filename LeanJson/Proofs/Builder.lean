@@ -37,11 +37,11 @@ theorem printTo_data (o : PrintOpts) : ∀ (d : Nat) (acc : ByteArray) (v : Json
   | d, acc, .bool false => by simp [printTo, printWith, pushList_data]
   | d, acc, .num n => by simp [printTo, printWith, pushList_data]
   | d, acc, .str s => by simp [printTo, printWith, pushString_data]
-  | d, acc, .arr [] => by simp [printTo, printWith, push_data]
+  | d, acc, .arr [] => by simp [printTo, printWith]
   | d, acc, .arr (x :: xs) => by
     simp only [printTo, printWith, push_data, pushList_data, printElemsTo_data o, printTo_data o,
       List.append_assoc, List.cons_append, List.nil_append]
-  | d, acc, .obj [] => by simp [printTo, printWith, push_data]
+  | d, acc, .obj [] => by simp [printTo, printWith]
   | d, acc, .obj ((k, v) :: kvs) => by
     simp only [printTo, printWith, push_data, pushList_data, pushString_data, printMembersTo_data o,
       printTo_data o, List.append_assoc, List.cons_append, List.nil_append]

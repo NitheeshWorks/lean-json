@@ -16,7 +16,7 @@ open Spec
 /-- The JSON layer: the reference parser and printer, and a proof of every
 headline specification. -/
 structure VerifiedJson where
-  parse : ParseCfg → ValueParser := parseValueWith
+  parse : ParseCfg → ValueParser := parseValueAt
   print : Printer := printWith
   /-- Round trip on any continuation, any options, any depth (lossless parser). -/
   parsePrintExt : ParsePrintExt (parse .lossless) print
@@ -26,10 +26,6 @@ structure VerifiedJson where
   numberExt : NumberExt (parseNumber .lossless) printNumber
   /-- The printer is injective under every option set. -/
   printInjective : PrintInjective print
-  /-- More fuel never changes a non-fuel answer, under every configuration. -/
-  fuelMono : ∀ cfg, FuelMono (parse cfg)
-  /-- The entry points' fuel budget never runs out. -/
-  fuelEnough : ∀ cfg, FuelEnough (parse cfg)
   /-- Every production consumes a byte and stays in bounds. -/
   stepProgress : ∀ cfg, StepProgress (parse cfg)
   /-- Compact output has no layout whitespace. -/
@@ -44,8 +40,6 @@ def theVerifiedJson : VerifiedJson where
   stringExt := string_ext
   numberExt := number_ext
   printInjective := print_injective_spec
-  fuelMono := parse_fuel_mono
-  fuelEnough := parse_fuel_enough
   stepProgress := step_progress
   compact := print_compact_spec
   parsePrint j o h := parse_print j o h

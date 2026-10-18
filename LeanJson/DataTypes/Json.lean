@@ -128,9 +128,9 @@ inductive ErrorKind where
   | trailingCharacters
   | unexpectedEndOfHexEscape
   | numberOutOfRange
-  /-- The fuel ran out. The public entry points pass enough fuel that this
-  cannot happen on any input (`LeanJson.parse_fuel_enough`); it exists so
-  the low-level parser is total. -/
+  /-- jiter's depth limit. Never reported here: the parser has no depth limit
+  (a documented deviation); the kind exists so error codes line up with
+  jiter's. -/
   | recursionLimitExceeded
   deriving DecidableEq, Repr, Inhabited
 

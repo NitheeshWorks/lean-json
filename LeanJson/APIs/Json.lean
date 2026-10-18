@@ -58,13 +58,12 @@ def parseStr (s : String) : Except JsonError {v : Json // Parsed s.toUTF8 v} :=
   parse s.toUTF8
 
 theorem parsedAt_of_ref {bs : ByteArray} {pos : Nat} {r : Json × Nat}
-    (h : parseValue bs pos (fuelFor bs pos) = .ok r) : ParsedAt bs pos r where
+    (h : parseValue bs pos = .ok r) : ParsedAt bs pos r where
   ref := h
-  bounds := step_progress {} bs pos _ r.1 r.2 h
+  bounds := parseValueAt_progress h
   canonical o d w rest hw hr := by
-    have e1 := parse_print_ext o d w bs pos rest (fuelFor bs pos) hw hr
-      (by have := length_le_of_at hw; unfold fuelFor; omega)
-    rw [parseValue_relax {} bs _ pos r h] at e1
+    have e1 := parse_print_ext o d w bs pos rest hw hr
+    rw [parseValue_relax {} bs pos r h] at e1
     cases e1; rfl
 
 /-- Parse one value starting at byte `pos` (after optional whitespace),
@@ -72,7 +71,7 @@ returning it with the position just past it; trailing bytes are left alone.
 For streaming and embedded use. -/
 def parseAt (bs : ByteArray) (pos : Nat) :
     Except JsonError {r : Json × Nat // ParsedAt bs pos r} :=
-  match h : parseValue bs pos (fuelFor bs pos) with
+  match h : parseValue bs pos with
   | .ok r => .ok ⟨r, parsedAt_of_ref h⟩
   | .error e => .error (e.toJsonError bs)
 

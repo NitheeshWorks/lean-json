@@ -41,21 +41,20 @@ def FitsFields (cfg : ParseCfg) : List (String × Json) → Prop
   | (_, v) :: kvs => Fits cfg v ∧ FitsFields cfg kvs
 end
 
-/-- The signature of a value parser: buffer, cursor, fuel. -/
-abbrev ValueParser := ByteArray → Nat → Nat → Except ParseErr (Json × Nat)
+/-- The signature of a value parser: buffer and cursor in; value and end
+position out. -/
+abbrev ValueParser := ByteArray → Nat → Except ParseErr (Json × Nat)
 
 /-- The signature of a printer: options, depth, value. -/
 abbrev Printer := PrintOpts → Nat → Json → List UInt8
 
 /-- **Round trip on any continuation.** Whatever the options and depth, the
 printed form of `v`, followed by anything that cannot extend a number,
-parses back to `v` with the cursor just past it, given more fuel than
-printed bytes. -/
+parses back to `v` with the cursor just past it. -/
 def ParsePrintExt (parse : ValueParser) (print : Printer) : Prop :=
-  ∀ (o : PrintOpts) (d : Nat) (v : Json) (bs : ByteArray) (pos : Nat) (rest : List UInt8)
-    (fuel : Nat),
-    At bs pos (print o d v) rest → NumStop rest → (print o d v).length < fuel →
-    parse bs pos fuel = .ok (v, pos + (print o d v).length)
+  ∀ (o : PrintOpts) (d : Nat) (v : Json) (bs : ByteArray) (pos : Nat) (rest : List UInt8),
+    At bs pos (print o d v) rest → NumStop rest →
+    parse bs pos = .ok (v, pos + (print o d v).length)
 
 /-- String literals round-trip on any continuation, in both escape modes
 (raw UTF-8 and `ensure_ascii`, including `\uXXXX` surrogate pairs). -/
@@ -75,22 +74,10 @@ def NumberExt (parse : ByteArray → Nat → Except ParseErr (Number × Nat))
 def PrintInjective (print : Printer) : Prop :=
   ∀ (o : PrintOpts) (v w : Json), print o 0 v = print o 0 w → v = w
 
-/-- More fuel never changes a result that was not a fuel failure. -/
-def FuelMono (parse : ValueParser) : Prop :=
-  ∀ (bs : ByteArray) (pos n m : Nat), n ≤ m →
-    (∀ e, parse bs pos n = .error e → e.kind ≠ .recursionLimitExceeded) →
-    parse bs pos m = parse bs pos n
-
-/-- `2 * (size - pos) + 1` fuel is always enough: the parser never fails for
-lack of fuel at that budget. -/
-def FuelEnough (parse : ValueParser) : Prop :=
-  ∀ (bs : ByteArray) (pos : Nat) (e : ParseErr),
-    parse bs pos (2 * (bs.size - pos) + 1) = .error e → e.kind ≠ .recursionLimitExceeded
-
 /-- Every successful parse consumes at least one byte and stays in bounds. -/
 def StepProgress (parse : ValueParser) : Prop :=
-  ∀ (bs : ByteArray) (pos fuel : Nat) (v : Json) (p : Nat),
-    parse bs pos fuel = .ok (v, p) → pos < p ∧ p ≤ bs.size
+  ∀ (bs : ByteArray) (pos : Nat) (v : Json) (p : Nat),
+    parse bs pos = .ok (v, p) → pos < p ∧ p ≤ bs.size
 
 mutual
 /-- Whether a string occurring in `v` (a value or a key) contains a space. -/
@@ -129,8 +116,8 @@ structure Parsed (bs : ByteArray) (v : Json) : Prop where
 /-- What a successful prefix parse of `bs` from `pos` guarantees about its
 result `r = (value, end position)`. -/
 structure ParsedAt (bs : ByteArray) (pos : Nat) (r : Json × Nat) : Prop where
-  /-- `r` is the reference parser's answer at the API's fuel budget. -/
-  ref : parseValue bs pos (fuelFor bs pos) = .ok r
+  /-- `r` is the reference parser's answer. -/
+  ref : parseValue bs pos = .ok r
   /-- At least one byte was consumed, and no byte past the end. -/
   bounds : pos < r.2 ∧ r.2 ≤ bs.size
   /-- If the bytes from `pos` are the printing of some `w` (any options and

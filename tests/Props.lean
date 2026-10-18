@@ -158,7 +158,7 @@ def properties : List Property := [
       let order := keys == (kvs.map (·.1)).eraseDups
       (if distinct && same && order then none else some s!"{v}", r)
     | _ => (none, r)⟩,
-  ⟨"random bytes: errors in bounds, never a fuel failure", fun r => Id.run do
+  ⟨"random bytes: errors in bounds, never a recursion-limit error", fun r => Id.run do
     let (len, r0) := r.nat 24
     let mut g := r0
     let mut bs : ByteArray := .empty

@@ -3,9 +3,10 @@ import LeanJson.DataTypes.Json
 /-!
 # RepoImpl: digits, hex digits, decimal normal form
 
-The arithmetic the number and string codecs share. Everything recurses on
-an explicit fuel argument so that it is structural and reduces in the
-kernel; the callers pass fuel that is provably enough (`Proofs/Digits.lean`).
+The arithmetic the number and string codecs share. The digit and
+trailing-zero searches recurse on a bound argument so that they are
+structural and reduce in the kernel; each is correct for any bound, and the
+bounds passed are large enough to be fast (`Proofs/Digits.lean`).
 -/
 
 namespace LeanJson

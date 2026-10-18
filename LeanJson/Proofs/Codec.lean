@@ -1,4 +1,4 @@
-import LeanJson.Proofs.Fuel
+import LeanJson.Proofs.Value
 
 /-!
 # Proofs: the codec theory and the headline round trip
@@ -69,16 +69,14 @@ theorem length_le_of_at {bs : ByteArray} {pos : Nat} {l rest : List UInt8} (h : 
   · subst hl; simp
   · have := h.le_size hl; omega
 
-/-- Values, under a parser configuration and print options, at the fuel the
-entry points pass. -/
+/-- Values, under a parser configuration and print options. -/
 def valueCodec (cfg : ParseCfg) (o : PrintOpts) (d : Nat) : Codec Json where
   encode := printWith o d
-  decode bs pos := parseValueWith cfg bs pos (fuelFor bs pos)
+  decode := parseValueAt cfg
   Valid := Fits cfg
   Stop := NumStop
   law v bs pos rest hv h hr := by
-    have := parseValue_ext o cfg v d (ws := []) (fuelFor bs pos) wsList_nil (by simpa using h) hr
-      (by have := length_le_of_at h; unfold fuelFor; omega) hv
+    have := parseValue_ext o cfg v d (ws := []) wsList_nil (by simpa using h) hr hv
     simpa using this
 
 theorem numStop_nil : NumStop [] := by intro b hb; cases hb
@@ -99,11 +97,8 @@ end
 
 /-- **Round trip on any continuation**, the `_ext` form: for the lossless
 parser, every value under every print option. -/
-theorem parse_print_ext : ParsePrintExt (parseValueWith .lossless) printWith := by
-  intro o d v bs pos rest fuel h hr hf
-  have := parseValue_ext o .lossless v d (ws := []) fuel wsList_nil (by simpa using h) hr hf
-    (fits_lossless v)
-  simpa using this
+theorem parse_print_ext : ParsePrintExt (parseValueAt .lossless) printWith :=
+  fun o d v _ _ rest h hr => (valueCodec .lossless o d).law v _ _ rest (fits_lossless v) h hr
 
 theorem string_ext : StringExt parseString printString :=
   fun ascii s _ _ _ h => parseString_printString_ext ascii s h
@@ -119,13 +114,8 @@ theorem parseDocumentWith_print (cfg : ParseCfg) (o : PrintOpts) (j : Json) (h :
   simp only [valueCodec, List.append_nil] at e
   rw [e]
   simp only
-  have hs : skipWs (printWith o 0 j).toByteArray (printWith o 0 j).length
-      (printWith o 0 j).toByteArray.size = (printWith o 0 j).length := by
-    cases hsz : (printWith o 0 j).toByteArray.size with
-    | zero => rfl
-    | succ f =>
-      unfold skipWs
-      rw [getElem?_neg _ _ (by simp)]
+  have hs : skipWs (printWith o 0 j).toByteArray (printWith o 0 j).length = (printWith o 0 j).length := by
+    rw [skipWs, dite_eq_right (by simp)]
   rw [hs, ite_eq_right (by simp)]
 
 /-- **`parse (print j) = .ok j`** for every value whose integers are within
@@ -160,106 +150,171 @@ theorem parseNumber_relax {cfg : ParseCfg} {bs : ByteArray} {pos : Nat} {r : Num
     · simp only [ParseCfg.intLenOk, ParseCfg.lossless, Bool.true_eq_false, ↓reduceIte]
       exact h
 
-mutual
-theorem parseValue_relax (cfg : ParseCfg) (bs : ByteArray) : ∀ (n pos : Nat) (r : Json × Nat),
-    parseValueWith cfg bs pos n = .ok r → parseValueWith .lossless bs pos n = .ok r
-  | 0, pos, r, h => by simp [parseValueWith] at h
-  | n + 1, pos, r, h => by
-    unfold parseValueWith at h ⊢
-    try simp only at h ⊢
-    generalize skipWs bs pos bs.size = q at h ⊢
+/-- The value parser's answer under `cfg`, if successful, is the lossless one. -/
+def RelaxV (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) : Prop :=
+  ∀ r, parseValueAt cfg bs pos = .ok r → parseValueAt .lossless bs pos = .ok r
+def RelaxE (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) : Prop :=
+  ∀ acc r, parseElemsAt cfg bs pos acc = .ok r → parseElemsAt .lossless bs pos acc = .ok r
+def RelaxM (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) : Prop :=
+  ∀ acc r, parseMembersAt cfg bs pos acc = .ok r → parseMembersAt .lossless bs pos acc = .ok r
+
+theorem parseValueAt_progress {cfg : ParseCfg} {bs : ByteArray} {pos : Nat} {r : Json × Nat}
+    (h : parseValueAt cfg bs pos = .ok r) : pos < r.2 ∧ r.2 ≤ bs.size := by
+  unfold parseValueAt at h
+  cases hv : parseValueWith cfg bs pos with
+  | error e => rw [hv] at h; cases h
+  | ok s => rw [hv] at h; cases h; exact ⟨s.lt, s.le⟩
+
+theorem relaxV_step (cfg : ParseCfg) (bs : ByteArray) (pos : Nat)
+    (IHe : ∀ p, bs.size - p < bs.size - pos → RelaxE cfg bs p)
+    (IHm : ∀ p, bs.size - p < bs.size - pos → RelaxM cfg bs p) : RelaxV cfg bs pos := by
+  intro r h
+  rw [parseValueAt_eq] at h ⊢
+  have g0 := skipWs_ge bs pos
+  have g1 := skipWs_ge bs (skipWs bs pos + 1)
+  split at h
+  · rename_i hb; (try rw [hb]); exact h
+  rename_i b hb
+  (try rw [hb]); try simp only
+  by_cases c34 : (b == 34) = true
+  · rw [ite_eq_left c34] at h ⊢; exact h
+  rw [ite_eq_right c34] at h ⊢
+  by_cases c91 : (b == 91) = true
+  · rw [ite_eq_left c91] at h ⊢
     split at h
-    · rename_i hb; (try rw [hb]); exact h
-    rename_i b hb
-    (try rw [hb]); try simp only
-    by_cases c34 : (b == 34) = true
-    · rw [ite_eq_left c34] at h ⊢; exact h
-    rw [ite_eq_right c34] at h ⊢
-    by_cases c91 : (b == 91) = true
-    · rw [ite_eq_left c91] at h ⊢
-      generalize skipWs bs (q + 1) bs.size = p at h ⊢
+    · rename_i hp; (try rw [hp]); exact h
+    · rename_i c hp
+      (try rw [hp]); try simp only
+      have := lt_size_of_get hp
       split at h
-      · rename_i hp; (try rw [hp]); exact h
-      · rename_i hp; (try rw [hp]); exact h
-      · exact parseElems_relax cfg bs n p [] r h
-    rw [ite_eq_right c91] at h ⊢
-    by_cases c123 : (b == 123) = true
-    · rw [ite_eq_left c123] at h ⊢
-      generalize skipWs bs (q + 1) bs.size = p at h ⊢
-      split at h
-      · rename_i hp; (try rw [hp]); exact h
-      · rename_i hp; (try rw [hp]); exact h
-      · rename_i hp; (try rw [hp]); exact parseMembers_relax cfg bs n p [] r h
-      · exact h
-    rw [ite_eq_right c123] at h ⊢
-    by_cases c116 : (b == 116) = true
-    · rw [ite_eq_left c116] at h ⊢; exact h
-    rw [ite_eq_right c116] at h ⊢
-    by_cases c102 : (b == 102) = true
-    · rw [ite_eq_left c102] at h ⊢; exact h
-    rw [ite_eq_right c102] at h ⊢
-    by_cases c110 : (b == 110) = true
-    · rw [ite_eq_left c110] at h ⊢; exact h
-    rw [ite_eq_right c110] at h ⊢
-    by_cases cn : (b == 45 || isDigit b) = true
-    · rw [ite_eq_left cn] at h ⊢
-      split at h
-      · rename_i x p hx; cases h; rw [parseNumber_relax hx]
-      · cases h
-    rw [ite_eq_right cn] at h ⊢
-    exact h
-theorem parseElems_relax (cfg : ParseCfg) (bs : ByteArray) : ∀ (n pos : Nat) (acc : List Json)
-    (r : Json × Nat), parseElems cfg bs pos n acc = .ok r → parseElems .lossless bs pos n acc = .ok r
-  | 0, pos, acc, r, h => by simp [parseElems] at h
-  | n + 1, pos, acc, r, h => by
-    unfold parseElems at h ⊢
+      · rename_i e; rw [ite_eq_left e]; exact h
+      · rename_i e; rw [ite_eq_right e]; exact IHe _ (by omega) [] r h
+  rw [ite_eq_right c91] at h ⊢
+  by_cases c123 : (b == 123) = true
+  · rw [ite_eq_left c123] at h ⊢
     split at h
-    · cases h
-    · rename_i v p1 hv
-      rw [parseValue_relax cfg bs n pos _ hv]
-      try simp only at h ⊢
-      generalize skipWs bs p1 bs.size = p at h ⊢
+    · rename_i hp; (try rw [hp]); exact h
+    · rename_i c hp
+      (try rw [hp]); try simp only
+      have := lt_size_of_get hp
       split at h
-      · rename_i hp; (try rw [hp]); exact h
-      · rename_i hp; (try rw [hp]); try simp only at h ⊢
-        generalize skipWs bs (p + 1) bs.size = q at h ⊢
+      · rename_i e; rw [ite_eq_left e]; exact h
+      · rename_i e; rw [ite_eq_right e]
         split at h
-        · rename_i c; rw [ite_eq_left c]; exact h
-        · rename_i c; rw [ite_eq_right c]; exact parseElems_relax cfg bs n q _ r h
-      · rename_i hp; (try rw [hp]); exact h
-      · exact h
-theorem parseMembers_relax (cfg : ParseCfg) (bs : ByteArray) : ∀ (n pos : Nat) (acc : List (String × Json))
-    (r : Json × Nat), parseMembers cfg bs pos n acc = .ok r → parseMembers .lossless bs pos n acc = .ok r
-  | 0, pos, acc, r, h => by simp [parseMembers] at h
-  | n + 1, pos, acc, r, h => by
-    unfold parseMembers at h ⊢
+        · rename_i e2; rw [ite_eq_left e2]; exact IHm _ (by omega) [] r h
+        · rename_i e2; rw [ite_eq_right e2]; exact h
+  rw [ite_eq_right c123] at h ⊢
+  by_cases c116 : (b == 116) = true
+  · rw [ite_eq_left c116] at h ⊢; exact h
+  rw [ite_eq_right c116] at h ⊢
+  by_cases c102 : (b == 102) = true
+  · rw [ite_eq_left c102] at h ⊢; exact h
+  rw [ite_eq_right c102] at h ⊢
+  by_cases c110 : (b == 110) = true
+  · rw [ite_eq_left c110] at h ⊢; exact h
+  rw [ite_eq_right c110] at h ⊢
+  by_cases cn : (b == 45 || isDigit b) = true
+  · rw [ite_eq_left cn] at h ⊢
+    cases hx : parseNumber cfg bs (skipWs bs pos) with
+    | error e => rw [hx] at h; cases h
+    | ok x => rw [hx] at h; rw [parseNumber_relax hx]; exact h
+  rw [ite_eq_right cn] at h ⊢
+  exact h
+
+theorem relaxE_step (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) (hV : RelaxV cfg bs pos)
+    (IHe : ∀ p, bs.size - p < bs.size - pos → RelaxE cfg bs p) : RelaxE cfg bs pos := by
+  intro acc r h
+  rw [parseElemsAt_eq] at h ⊢
+  split at h
+  · cases h
+  · rename_i v p1 hv
+    have pr := parseValueAt_progress hv
+    rw [hV _ hv]
+    simp only
+    have g1 := skipWs_ge bs p1
+    have g2 := skipWs_ge bs (skipWs bs p1 + 1)
     split at h
-    · cases h
-    · rename_i k p1 hk
-      (try rw [hk]); try simp only at h ⊢
-      generalize skipWs bs p1 bs.size = p at h ⊢
+    · rename_i hp; (try rw [hp]); exact h
+    · rename_i c hp
+      (try rw [hp]); try simp only
       split at h
-      · rename_i hp; (try rw [hp]); exact h
-      · rename_i hp; (try rw [hp]); try simp only
+      · rename_i e; rw [ite_eq_left e]
+        split at h
+        · rename_i e2; rw [ite_eq_left e2]; exact h
+        · rename_i e2; rw [ite_eq_right e2]; exact IHe _ (by simp at pr; omega) _ r h
+      · rename_i e; rw [ite_eq_right e]; exact h
+
+theorem relaxM_step (cfg : ParseCfg) (bs : ByteArray) (pos : Nat)
+    (IHv : ∀ p, bs.size - p < bs.size - pos → RelaxV cfg bs p)
+    (IHm : ∀ p, bs.size - p < bs.size - pos → RelaxM cfg bs p) : RelaxM cfg bs pos := by
+  intro acc r h
+  rw [parseMembersAt_eq] at h ⊢
+  split at h
+  · cases h
+  · rename_i k p1 hk
+    have pk := (parseString_adv hk).2
+    (try rw [hk]); try simp only
+    have g1 := skipWs_ge bs p1
+    split at h
+    · rename_i hp; (try rw [hp]); exact h
+    · rename_i c hp
+      (try rw [hp]); try simp only
+      have hps := lt_size_of_get hp
+      split at h
+      · rename_i e; rw [ite_eq_left e]
         split at h
         · cases h
         · rename_i v p2 hv
-          rw [parseValue_relax cfg bs n (p + 1) _ hv]
-          try simp only at h ⊢
-          generalize skipWs bs p2 bs.size = p3 at h ⊢
+          have pr := parseValueAt_progress hv
+          rw [IHv _ (by omega) _ hv]
+          simp only
+          have g2 := skipWs_ge bs p2
+          have g3 := skipWs_ge bs (skipWs bs p2 + 1)
           split at h
-          · rename_i hp3; (try rw [hp3]); exact h
-          · rename_i hp3; (try rw [hp3]); try simp only at h ⊢
-            generalize skipWs bs (p3 + 1) bs.size = q at h ⊢
+          · rename_i hd; (try rw [hd]); exact h
+          · rename_i d hd
+            (try rw [hd]); try simp only
             split at h
-            · rename_i hq; (try rw [hq]); exact h
-            · rename_i hq; (try rw [hq]); exact parseMembers_relax cfg bs n q _ r h
-            · rename_i hq; (try rw [hq]); exact h
-            · exact h
-          · rename_i hp3; (try rw [hp3]); exact h
-          · exact h
-      · exact h
-end
+            · rename_i e3; rw [ite_eq_left e3]
+              split at h
+              · rename_i he; (try rw [he]); exact h
+              · rename_i f he
+                (try rw [he]); try simp only
+                have hqs := lt_size_of_get he
+                split at h
+                · rename_i e4; rw [ite_eq_left e4]
+                  exact IHm _ (by simp at pr; omega) _ r h
+                · rename_i e4; rw [ite_eq_right e4]; exact h
+            · rename_i e3; rw [ite_eq_right e3]; exact h
+      · rename_i e; rw [ite_eq_right e]; exact h
+
+/-- Limits only add errors: by strong induction on the remaining input. -/
+theorem relax_all (cfg : ParseCfg) (bs : ByteArray) :
+    ∀ n pos, bs.size - pos ≤ n → RelaxV cfg bs pos ∧ RelaxE cfg bs pos ∧ RelaxM cfg bs pos := by
+  intro n
+  induction n with
+  | zero =>
+    intro pos hp
+    have IH0 : ∀ p, bs.size - p < bs.size - pos → False := fun p h => by omega
+    have hv := relaxV_step cfg bs pos (fun p h => (IH0 p h).elim) (fun p h => (IH0 p h).elim)
+    exact ⟨hv, relaxE_step cfg bs pos hv (fun p h => (IH0 p h).elim),
+      relaxM_step cfg bs pos (fun p h => (IH0 p h).elim) (fun p h => (IH0 p h).elim)⟩
+  | succ n ih =>
+    intro pos hp
+    have IH : ∀ p, bs.size - p < bs.size - pos → RelaxV cfg bs p ∧ RelaxE cfg bs p ∧ RelaxM cfg bs p :=
+      fun p h => ih p (by omega)
+    have hv := relaxV_step cfg bs pos (fun p h => (IH p h).2.1) (fun p h => (IH p h).2.2)
+    exact ⟨hv, relaxE_step cfg bs pos hv (fun p h => (IH p h).2.1),
+      relaxM_step cfg bs pos (fun p h => (IH p h).1) (fun p h => (IH p h).2.2)⟩
+
+theorem parseValue_relax (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) (r : Json × Nat)
+    (h : parseValueAt cfg bs pos = .ok r) : parseValueAt .lossless bs pos = .ok r :=
+  (relax_all cfg bs _ pos (Nat.le_refl _)).1 r h
+
+/-- **Step progress**: every successful value parse consumes at least one byte
+and ends within the buffer. It is the `Step` type of the parser, read back. -/
+theorem step_progress (cfg : ParseCfg) : StepProgress (parseValueAt cfg) :=
+  fun _ _ _ _ h => parseValueAt_progress h
 
 theorem parseDocument_relax {cfg : ParseCfg} {bs : ByteArray} {v : Json}
     (h : parseDocumentWith cfg bs = .ok v) : parseDocumentWith .lossless bs = .ok v := by
@@ -267,7 +322,7 @@ theorem parseDocument_relax {cfg : ParseCfg} {bs : ByteArray} {v : Json}
   split at h
   · cases h
   · rename_i w p hw
-    rw [parseValue_relax cfg bs _ 0 _ hw]
+    rw [parseValue_relax cfg bs 0 _ hw]
     exact h
 
 /-- A successful parse of a canonical printing is the value printed. -/

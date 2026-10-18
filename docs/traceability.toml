@@ -156,9 +156,9 @@ id = "recursion_limit"
 upstream = "jiter recursion limit (200 levels)"
 title = "No nesting depth limit: the parser is total by fuel and linear in depth; upstream reports 'recursion limit exceeded' past 200 levels"
 status = "deviation"
-realises = ["LeanJson.fuelFor"]
-theorem = ["LeanJson.parse_fuel_enough", "LeanJson.parse_fuel_mono"]
-test = ["tests/Props.lean::random bytes: errors in bounds, never a fuel failure"]
+realises = ["LeanJson.parseValueWith", "LeanJson.Step"]
+theorem = ["LeanJson.step_progress"]
+test = ["tests/Props.lean::random bytes: errors in bounds, never a recursion-limit error"]
 
 [[requirement]]
 id = "errors.offsets"
@@ -188,10 +188,10 @@ theorem = []
 test = ["tests/Props.lean::Lean.Json bridge: ofLean (toLean v) = v on its common fragment"]
 
 [[requirement]]
-id = "fuel"
+id = "total"
 upstream = "jiter (total parsing)"
-title = "Parser is total: structural recursion on fuel; the API's budget never runs out; more fuel never changes an answer"
+title = "Parser is total with no fuel: each production returns a Step (progress in its type), recursion is well founded on the remaining input"
 status = "implemented"
-realises = ["LeanJson.parseValueWith", "LeanJson.fuelFor"]
-theorem = ["LeanJson.parse_fuel_enough", "LeanJson.parse_fuel_mono", "LeanJson.step_progress"]
-test = ["tests/Props.lean::random bytes: errors in bounds, never a fuel failure"]
+realises = ["LeanJson.parseValueWith", "LeanJson.Step", "LeanJson.Step.lift", "LeanJson.skipWs", "LeanJson.parseStrBody"]
+theorem = ["LeanJson.step_progress", "LeanJson.parseValueAt_progress", "LeanJson.parseValueAt_eq"]
+test = ["tests/Props.lean::random bytes: errors in bounds, never a recursion-limit error"]

@@ -80,9 +80,10 @@ beyond Lean's `propext`, `Quot.sound`, `Classical.choice`.
 * **The printer is injective**: `print_injective o : Function.Injective (printWith o 0)`.
 * **Compact output**: `print_compact` — no tab, LF or CR byte, and a space only
   inside a string that contains one.
-* **Total parsing.** `parse_fuel_enough`: the entry points' fuel never runs out;
-  `parse_fuel_mono`: more fuel never changes an answer; `step_progress`: every
-  production consumes a byte and stays in bounds.
+* **Total parsing, no fuel.** Every production returns a `Step` whose type
+  records that the cursor moved forward and stayed in the buffer, so the
+  recursion is well founded on the remaining input; `step_progress` reads that
+  back for the public parser.
 * **Canonical input.** `parse_canonical`: if the input is the printing of some
   value, the parse returns that value.
 * **Fast printer, same bytes.** `printBA_eq`: the linear byte-builder printer

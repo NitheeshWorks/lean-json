@@ -3,8 +3,7 @@ import LeanJson.Proofs.Digits
 import LeanJson.Proofs.Number
 import LeanJson.Proofs.String
 import LeanJson.Proofs.Value
-import LeanJson.Proofs.Progress
-import LeanJson.Proofs.Fuel
+import LeanJson.Proofs.Unfold
 import LeanJson.Proofs.Codec
 import LeanJson.Proofs.Compact
 import LeanJson.Proofs.Builder
