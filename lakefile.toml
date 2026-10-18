@@ -1,6 +1,6 @@
 name = "LeanJson"
 version = "0.1.0"
-defaultTargets = ["LeanJson", "props", "conformance", "quickstart"]
+defaultTargets = ["LeanJson", "props", "conformance", "quickstart", "notation"]
 
 # The verified library. Everything under LeanJson/ except Transport.lean is a
 # total function and the proof surface; see CONTRIBUTING.md.
@@ -23,6 +23,12 @@ root = "tests.Conformance"
 [[lean_exe]]
 name = "perf"
 root = "tests.Perf"
+
+# `json%` with Lean core imported too (its own `json%` must not win):
+# a compile-time test, `lake exe notation`.
+[[lean_exe]]
+name = "notation"
+root = "tests.Notation"
 
 # The README quickstart, compiled: `lake exe quickstart`.
 [[lean_exe]]

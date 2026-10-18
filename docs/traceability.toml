@@ -212,7 +212,7 @@ title = "json% literal notation with spliced Lean values (IntoJson), for handler
 status = "tested"
 realises = ["LeanJson.IntoJson", "LeanJson.expandJsonv"]
 theorem = []
-test = ["tests/Conformance.lean::nested objects, compact"]
+test = ["tests/Conformance.lean::nested objects, compact", "tests/Notation.lean"]
 
 [[requirement]]
 id = "bridge.lean_json"

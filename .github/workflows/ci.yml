@@ -27,6 +27,8 @@ jobs:
         run: lake exe props
       - name: Conformance
         run: lake exe conformance
+      - name: json% next to Lean core's json%
+        run: lake exe notation
       - name: Traceability
         run: python3 scripts/traceability-check.py
       - name: Memory and time benchmark (peak memory within 8x the input + 32 MB; wide objects linear)

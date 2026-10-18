@@ -113,7 +113,9 @@ Listed here with the reason, and in `docs/traceability.toml` with
   `partial` printer, so nothing about it is provable; tested on its common
   fragment.
 * **`json%`** notation: a macro; tested by the conformance cases that build
-  values with it.
+  values with it, and by `tests/Notation.lean`, which imports `Lean` too:
+  Lean core has its own `json%` (for `Lean.Json`), so ours is declared at
+  `priority := high` and wins with no type ascription.
 
 ## Why not `Lean.Json` <a name="why-not-lean-json"></a>
 

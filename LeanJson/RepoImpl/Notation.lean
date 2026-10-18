@@ -16,6 +16,10 @@ json% {"total": (a + b)}
 ```
 
 An identifier or a parenthesised term is converted with `IntoJson`.
+
+Lean core declares a `json%` of its own (for `Lean.Json`), seen by every
+module that imports `Lean`. This one is declared at `priority := high`, so it
+wins there too and needs no type ascription (`tests/Notation.lean`).
 -/
 
 namespace LeanJson
@@ -91,7 +95,9 @@ def expandJsonv : (depth : Nat) → TSyntax `jsonv → MacroM Term
       `(Json.obj #[$items,*])
     | _ => Macro.throwUnsupported
 
-/-- JSON literal syntax with spliced Lean terms. -/
-macro "json% " v:jsonv : term => expandJsonv 1000 v
+/-- JSON literal syntax with spliced Lean terms. Higher priority than Lean
+core's `json%`, so a literal is a `LeanJson.Json` even when `Lean` is
+imported. -/
+macro (priority := high) "json% " v:jsonv : term => expandJsonv 1000 v
 
 end LeanJson

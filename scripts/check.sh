@@ -23,6 +23,9 @@ lake exe props
 echo "== conformance =="
 lake exe conformance
 
+echo "== json% next to Lean core's json% =="
+lake exe notation
+
 echo "== traceability =="
 python3 scripts/traceability-check.py
 
