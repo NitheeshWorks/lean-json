@@ -13,14 +13,16 @@ under github.com/NitheeshWorks (lean-fastapi and its dependencies, one repo each
 lake build                              # library + proofs + test executables
 lake exe props [seed]                   # property tests, < 1 s
 lake exe conformance                    # upstream-mirroring cases
-lake env lean --run scripts/Axioms.lean LeanJson   # axiom hygiene
+lake exe axioms LeanJson                # axiom hygiene (scripts/Axioms.lean, pinned)
 scripts/check.sh [--quick|--pbt]        # the whole gate
 lake env lean LeanJson/Proofs/Foo.lean     # check one file (never bare `lean`)
 ```
 
 ## Rules that CI enforces
 
-* `scripts/Axioms.lean` checks every declaration (theorems and definitions):
+* `scripts/Axioms.lean` (`lake exe axioms`) is a byte-for-byte copy of
+  `stack-tools/Axioms.lean`, pinned by `scripts/Axioms.sha256`; never edit it
+  here (a change goes into stack-tools first). It checks every declaration (theorems and definitions):
   no `sorry`/`admit`, no `partial def` (derived `Repr` printers excepted), no
   `unsafe`, no `@[implemented_by]`/`@[extern]`, no `native_decide`/`bv_decide`, under `LeanJson/`.
 * Every theorem reaches only `propext`, `Quot.sound`, `Classical.choice`.

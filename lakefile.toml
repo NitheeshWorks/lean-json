@@ -47,6 +47,13 @@ root = "examples.Quickstart"
 name = "wide"
 root = "tests.Wide"
 
+# The verification gate, compiled: `lake exe axioms LeanJson`. A byte-for-byte
+# copy of stack-tools/Axioms.lean, pinned by scripts/Axioms.sha256.
+[[lean_exe]]
+name = "axioms"
+root = "scripts.Axioms"
+supportInterpreter = true
+
 # Native memory/time benchmark: `lake exe bench [flat|keys|strings] [mb]`.
 [[lean_exe]]
 name = "bench"

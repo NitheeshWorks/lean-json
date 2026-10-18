@@ -42,7 +42,9 @@ be a Hoare triple over a heap.
 * **Numbers.** `Nat`/`Int`/decimal-as-rational in proofs. `Float` only at the
   boundary via `Float.toBits`. Never `bv_decide` or `native_decide`.
 * **The gate.** `scripts/check.sh` runs what CI runs: build, `sorry` grep,
-  `scripts/Axioms.lean` (every theorem under `LeanJson` reaches only `propext`,
+  `lake exe axioms LeanJson` (`scripts/Axioms.lean`, a pinned copy of
+  `stack-tools/Axioms.lean` checked against `scripts/Axioms.sha256`; every
+  theorem under `LeanJson` reaches only `propext`,
   `Quot.sound`, `Classical.choice`), `lake exe props`, `lake exe conformance`,
   the traceability check.
 
