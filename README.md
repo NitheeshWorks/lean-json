@@ -102,7 +102,9 @@ beyond Lean's `propext`, `Quot.sound`, `Classical.choice`.
   (`numberCodec`: integers of any size, floats with exact mantissa, exponent
   and the sign of zero) and values (`valueCodec`) are its instances, and
   `Codec.decode_encode` and `Codec.encode_injective` are proved once for all.
-* **The printer is injective**: `print_injective o : Function.Injective (printWith o 0)`.
+* **The printer is injective**: `print_injective o : Function.Injective (printWith o 0)`
+  in `constants` mode, and `print_injective_finite` / `to_json_injective_finite`
+  on finite values in every `inf_nan_mode`.
 * **Compact output**: `print_compact` — no tab, LF or CR byte, and a space only
   inside a string that contains one.
 * **Total parsing, no fuel.** Every production returns a `Step` whose type

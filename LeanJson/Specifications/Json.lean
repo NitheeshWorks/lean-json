@@ -94,6 +94,12 @@ def NumberExt (parse : ByteArray → Nat → Except ParseErr (Number × Nat))
 def PrintInjective (print : Printer) : Prop :=
   ∀ (o : PrintOpts) (v w : Json), o.infNan = .constants → print o 0 v = print o 0 w → v = w
 
+/-- The printer is injective on finite values, for every choice of options
+(every NaN/infinity mode). -/
+def PrintInjectiveFinite (print : Printer) : Prop :=
+  ∀ (o : PrintOpts) (v w : Json), v.allFinite = true → w.allFinite = true →
+    print o 0 v = print o 0 w → v = w
+
 /-- Every successful parse consumes at least one byte and stays in bounds. -/
 def StepProgress (parse : ValueParser) : Prop :=
   ∀ (bs : ByteArray) (pos : Nat) (v : Json) (p : Nat),

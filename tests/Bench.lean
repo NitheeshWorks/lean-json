@@ -15,6 +15,8 @@ process-wide.
 * `keys`: one object repeating `"key":12345`, collapsed to one member as a
   `dict` (pydantic-core: 136 MB at 60 MB).
 * `strings`: an array of 30-byte strings.
+* `e2e`: the `flat` input as a server handles a request body: text in,
+  `from_json`, `to_json` out (bound: 10 × input + 32 MB).
 -/
 
 def peakKB : IO Nat := do
@@ -53,9 +55,30 @@ def strings (mb : Nat) : ByteArray := Id.run do
     b := b ++ item
   b.push 93
 
+/-- A request/response round trip as a server does it: the body as text,
+`from_json`, then `to_json` of the result. The peak covers both. -/
+def endToEnd (mb : Nat) : IO UInt32 := do
+  let body := String.fromUTF8! (flatArray mb)
+  let base ← peakKB
+  let t ← IO.monoMsNow
+  match from_json body with
+  | .ok v =>
+    let out := (to_json v.val).val
+    let t2 ← IO.monoMsNow
+    let peak ← peakKB
+    let added := (peak - base) * 1024
+    let bound := 10 * body.utf8ByteSize + 32 * 1000000
+    IO.println s!"e2e {body.utf8ByteSize / 1000000} MB: from_json + to_json {t2 - t} ms, peak {peak / 1024} MB (before {base / 1024} MB), {out.size} bytes out"
+    if added > bound then
+      IO.println s!"FAIL: the round trip added {added / 1000000} MB, over the bound {bound / 1000000} MB"
+      return 1
+    return 0
+  | .error e => IO.println e.description; return 1
+
 def main (args : List String) : IO UInt32 := do
   let kind := args.head?.getD "flat"
   let mb := (args.drop 1).head?.bind String.toNat? |>.getD 20
+  if kind == "e2e" then return ← endToEnd mb
   let input := match kind with
     | "keys" => repeatedKeys mb
     | "strings" => strings mb

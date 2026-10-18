@@ -26,6 +26,8 @@ structure VerifiedJson where
   numberExt : NumberExt (parseNumber .lossless) printNumber
   /-- The printer is injective under every option set. -/
   printInjective : PrintInjective print
+  /-- …and on finite values under every option, every NaN/infinity mode included. -/
+  printInjectiveFinite : PrintInjectiveFinite print
   /-- Every production consumes a byte and stays in bounds. -/
   stepProgress : ∀ cfg, StepProgress (parse cfg)
   /-- Compact output has no layout whitespace. -/
@@ -49,6 +51,7 @@ def theVerifiedJson : VerifiedJson where
   stringExt := string_ext
   numberExt := number_ext
   printInjective := print_injective_spec
+  printInjectiveFinite o _ _ hv hw h := print_injective_finite o hv hw h
   stepProgress := step_progress
   compact := print_compact_spec
   parsePrint j o hrb hi hk hd := parse_print j o (fits_default hi hk hd) hrb

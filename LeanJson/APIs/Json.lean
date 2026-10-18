@@ -155,6 +155,18 @@ theorem to_json_injective (indent : Option Nat := none) (ensure_ascii : Bool := 
   rw [hab] at ha
   exact print_injective _ rfl (ha.symm.trans hb)
 
+/-- **`to_json` is injective on finite values** under every `indent`,
+`ensure_ascii` and `inf_nan_mode`. -/
+theorem to_json_injective_finite (indent : Option Nat := none) (ensure_ascii : Bool := false)
+    (inf_nan_mode : InfNanMode := .constants) {a b : Json} (ha : a.allFinite = true)
+    (hb : b.allFinite = true)
+    (hab : (to_json a indent ensure_ascii inf_nan_mode).val = (to_json b indent ensure_ascii inf_nan_mode).val) :
+    a = b := by
+  have ea := (to_json a indent ensure_ascii inf_nan_mode).property.bytes
+  have eb := (to_json b indent ensure_ascii inf_nan_mode).property.bytes
+  rw [hab] at ea
+  exact print_injective_finite _ ha hb (ea.symm.trans eb)
+
 /-- `to_json`, Lean-cased. -/
 abbrev toJson {α : Type} [IntoJson α] (value : α) (indent : Option Nat := none)
     (ensure_ascii : Bool := false) (inf_nan_mode : InfNanMode := .constants) :=

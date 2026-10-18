@@ -29,34 +29,91 @@ theorem pushString_data (ascii : Bool) (acc : ByteArray) (s : String) :
     | cons c cs ih => intro a; simp only [List.foldl_cons, ih, pushList_data, List.flatMap_cons, List.append_assoc]
   rw [push_data, key, push_data]; simp
 
+theorem snd_lt (kv : String × Json) : sizeOf kv.2 < sizeOf kv := by
+  cases kv; simp; omega
+
 mutual
-theorem printTo_data (o : PrintOpts) : ∀ (d : Nat) (acc : ByteArray) (v : Json),
-    (printTo o d acc v).data.toList = acc.data.toList ++ printWith o d v
-  | d, acc, .null => by simp [printTo, printWith, pushList_data]
-  | d, acc, .bool true => by simp [printTo, printWith, pushList_data]
-  | d, acc, .bool false => by simp [printTo, printWith, pushList_data]
-  | d, acc, .num n => by simp [printTo, printWith, pushList_data]
-  | d, acc, .str s => by simp [printTo, printWith, pushString_data]
-  | d, acc, .arr ⟨[]⟩ => by simp [printTo, printWith]
-  | d, acc, .arr ⟨x :: xs⟩ => by
-    simp only [printTo, printWith, push_data, pushList_data, printElemsTo_data o, printTo_data o,
-      List.append_assoc, List.cons_append, List.nil_append]
-  | d, acc, .obj ⟨[]⟩ => by simp [printTo, printWith]
-  | d, acc, .obj ⟨(k, v) :: kvs⟩ => by
-    simp only [printTo, printWith, push_data, pushList_data, pushString_data, printMembersTo_data o,
-      printTo_data o, List.append_assoc, List.cons_append, List.nil_append]
-theorem printElemsTo_data (o : PrintOpts) : ∀ (d : Nat) (acc : ByteArray) (xs : List Json),
-    (printElemsTo o d acc xs).data.toList = acc.data.toList ++ printElems o d xs
-  | d, acc, [] => by simp [printElemsTo, printElems]
-  | d, acc, x :: xs => by
-    simp only [printElemsTo, printElems, printElemsTo_data o, printTo_data o, pushList_data, push_data,
-      List.append_assoc, List.cons_append, List.nil_append]
-theorem printMembersTo_data (o : PrintOpts) : ∀ (d : Nat) (acc : ByteArray) (kvs : List (String × Json)),
-    (printMembersTo o d acc kvs).data.toList = acc.data.toList ++ printMembers o d kvs
-  | d, acc, [] => by simp [printMembersTo, printMembers]
-  | d, acc, (k, v) :: kvs => by
-    simp only [printMembersTo, printMembers, printMembersTo_data o, printTo_data o, pushList_data,
-      pushString_data, push_data, List.append_assoc, List.cons_append, List.nil_append]
+theorem printTo_data (o : PrintOpts) (d : Nat) (acc : ByteArray) (v : Json) :
+    (printTo o d acc v).data.toList = acc.data.toList ++ printWith o d v := by
+  match v with
+  | .null => simp [printTo, printWith, pushList_data]
+  | .bool true => simp [printTo, printWith, pushList_data]
+  | .bool false => simp [printTo, printWith, pushList_data]
+  | .num n => simp [printTo, printWith, pushList_data]
+  | .str s => simp [printTo, printWith, pushString_data]
+  | .arr a =>
+    rw [printTo]
+    split
+    · rename_i h
+      rw [push_data, pushList_data, printElemsFrom_data o, printTo_data o (d + 1) _ a[0], pushList_data, push_data]
+      obtain ⟨l⟩ := a
+      cases l with
+      | nil => simp at h
+      | cons x xs => simp [printWith]
+    · rename_i h
+      obtain ⟨l⟩ := a
+      cases l with
+      | nil => simp [printWith]
+      | cons x xs => simp at h
+  | .obj a =>
+    rw [printTo]
+    split
+    · rename_i h
+      rw [push_data, pushList_data, printMembersFrom_data o, printTo_data o (d + 1) _ a[0].2, pushList_data,
+        pushString_data, pushList_data, push_data]
+      obtain ⟨l⟩ := a
+      cases l with
+      | nil => simp at h
+      | cons kv kvs => obtain ⟨k, v⟩ := kv; simp [printWith]
+    · rename_i h
+      obtain ⟨l⟩ := a
+      cases l with
+      | nil => simp [printWith]
+      | cons x xs => simp at h
+termination_by (sizeOf v, 0)
+decreasing_by
+  all_goals simp_wf
+  all_goals apply Prod.Lex.left
+  all_goals first
+    | omega
+    | exact Nat.lt_of_lt_of_le (Array.sizeOf_getElem _ _ _) (Nat.le_add_left _ _)
+    | exact Nat.lt_of_lt_of_le (Nat.lt_trans (snd_lt _) (Array.sizeOf_getElem _ _ _)) (Nat.le_add_left _ _)
+theorem printElemsFrom_data (o : PrintOpts) (d : Nat) (acc : ByteArray) (a : Array Json) (i : Nat) :
+    (printElemsFrom o d acc a i).data.toList = acc.data.toList ++ printElems o d (a.toList.drop i) := by
+  rw [printElemsFrom]
+  split
+  · rename_i h
+    rw [List.drop_eq_getElem_cons (i := i) (by simpa using h)]
+    rw [printElemsFrom_data o d _ a (i + 1), printTo_data o d _ a[i], pushList_data, push_data]
+    simp [printElems]
+  · rename_i h
+    rw [List.drop_eq_nil_of_le (by simpa using h)]
+    simp [printElems]
+termination_by (sizeOf a, a.size - i)
+decreasing_by
+  all_goals simp_wf
+  all_goals first
+    | (apply Prod.Lex.right; omega)
+    | (apply Prod.Lex.left; exact Array.sizeOf_getElem _ _ _)
+theorem printMembersFrom_data (o : PrintOpts) (d : Nat) (acc : ByteArray) (a : Array (String × Json))
+    (i : Nat) :
+    (printMembersFrom o d acc a i).data.toList = acc.data.toList ++ printMembers o d (a.toList.drop i) := by
+  rw [printMembersFrom]
+  split
+  · rename_i h
+    rw [List.drop_eq_getElem_cons (i := i) (by simpa using h)]
+    rw [printMembersFrom_data o d _ a (i + 1), printTo_data o d _ a[i].2, pushList_data, pushString_data,
+      pushList_data, push_data]
+    simp [printMembers]
+  · rename_i h
+    rw [List.drop_eq_nil_of_le (by simpa using h)]
+    simp [printMembers]
+termination_by (sizeOf a, a.size - i)
+decreasing_by
+  all_goals simp_wf
+  all_goals first
+    | (apply Prod.Lex.right; omega)
+    | (apply Prod.Lex.left; exact Nat.lt_trans (snd_lt _) (Array.sizeOf_getElem _ _ _))
 end
 
 /-- The builder prints exactly the specified bytes. -/

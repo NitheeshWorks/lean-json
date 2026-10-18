@@ -407,6 +407,14 @@ theorem print_injective (o : PrintOpts) (ho : o.infNan = .constants) :
   (valueCodec .lossless o 0).encode_injective numStop_nil ⟨fits_lossless _, Or.inl ho⟩
     ⟨fits_lossless _, Or.inl ho⟩ h
 
+/-- **…and on finite values under every option**, `null` and `strings` modes
+included: a value with no NaN or infinity prints the same in every mode, and
+distinct such values print differently. -/
+theorem print_injective_finite (o : PrintOpts) {v w : Json} (hv : v.allFinite = true)
+    (hw : w.allFinite = true) (h : printWith o 0 v = printWith o 0 w) : v = w :=
+  (valueCodec .lossless o 0).encode_injective numStop_nil ⟨fits_lossless _, Or.inr hv⟩
+    ⟨fits_lossless _, Or.inr hw⟩ h
+
 theorem print_injective_spec : PrintInjective printWith := fun o _ _ ho h => print_injective o ho h
 
 end LeanJson

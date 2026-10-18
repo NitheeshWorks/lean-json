@@ -58,7 +58,7 @@ upstream = "tests/test_json.py::test_to_json"
 title = "to_json(value) is compact: ',' and ':' separators, no whitespace (Starlette JSONResponse)"
 status = "implemented"
 realises = ["LeanJson.to_json", "LeanJson.print", "LeanJson.printWith", "LeanJson.printBA"]
-theorem = ["LeanJson.print_compact", "LeanJson.print_injective", "LeanJson.printBA_eq"]
+theorem = ["LeanJson.print_compact", "LeanJson.print_injective", "LeanJson.print_injective_finite", "LeanJson.to_json_injective_finite", "LeanJson.printBA_eq", "LeanJson.printTo_data"]
 test = ["tests/Conformance.lean::to_json([1, 2])", "tests/Props.lean::printBA agrees with printWith"]
 
 [[requirement]]

@@ -30,6 +30,7 @@ echo "== benchmark =="
 lake exe bench flat 20
 lake exe bench keys 60
 lake exe bench strings 20
+lake exe bench e2e 20
 
 if [[ "${1:-}" == "--pbt" ]]; then
   echo "== plausible =="
