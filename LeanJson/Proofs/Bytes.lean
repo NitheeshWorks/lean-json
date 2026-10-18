@@ -40,6 +40,13 @@ theorem At.assoc {bs : ByteArray} {pos : Nat} {l₁ l₂ rest : List UInt8}
     (h : At bs pos (l₁ ++ l₂) rest) : At bs pos l₁ (l₂ ++ rest) := by
   unfold At at *; rw [h, List.append_assoc]
 
+theorem At.drop {bs : ByteArray} {pos : Nat} {l m r : List UInt8}
+    (h : At bs pos l (m ++ r)) : At bs (pos + l.length) m r := At.app (At.app' h)
+
+theorem At.re {bs : ByteArray} {pos pos' : Nat} {l r l' r' : List UInt8}
+    (h : At bs pos l r) (hp : pos = pos') (e : l ++ r = l' ++ r') : At bs pos' l' r' := by
+  subst hp; unfold At at *; rw [h, e]
+
 theorem At.nil {bs : ByteArray} {pos : Nat} {rest : List UInt8}
     (h : At bs pos [] rest) : bs[pos]? = rest.head? := by
   rw [getElem?_eq_drop_head, h]; rfl
