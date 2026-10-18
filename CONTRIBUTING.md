@@ -16,7 +16,7 @@ to bytes:
 | `RepoImpl/` | executable definitions; total, structural recursion | subject of proofs |
 | `Specifications/` | the properties, in `Prop` | the contract |
 | `Proofs/` | theorems; `Proofs/Verified.lean` bundles one `Verified<Layer>` per layer | yes |
-| `APIs/` | the public surface, returning refinements | by construction |
+| `APIs/` | the public surface (`from_json`, `to_json`, `parseAt`), returning refinements proved from `Proofs/` | by construction |
 | `Transport.lean` (if present) | the only effectful module | no; tested |
 
 Everything except the transport module is a pure function. This is
@@ -45,10 +45,57 @@ be a Hoare triple over a heap.
   `Quot.sound`, `Classical.choice`), `lake exe props`, `lake exe conformance`,
   the traceability check.
 
+### The proof map
+
+| Module | What it proves |
+|---|---|
+| `Proofs/Bytes.lean` | `Spec.At`: reading bytes of a buffer whose suffix is a known list |
+| `Proofs/Digits.lean` | digit lists, digit runs (`scanDigits_ext`, `digitsValue_ext`), the decimal normal form (`normalize_mul`) |
+| `Proofs/Number.lean` | `parseNumber_printNumber_ext`, via one shape lemma for ryu's five layouts |
+| `Proofs/String.lean` | `parseString_printString_ext`, via `strStep` (one character, every escape form) |
+| `Proofs/Value.lean` | `parseValue_ext`, by mutual structural recursion over values, element lists and member lists |
+| `Proofs/Progress.lean`, `Proofs/Fuel.lean` | `step_progress`, `parse_fuel_enough`, `parse_fuel_mono` |
+| `Proofs/Codec.lean` | the `Codec` theory (`decode_encode`, `encode_injective`), its instances, `parse_print`, `print_injective`, `parse_canonical`, config relaxation |
+| `Proofs/Compact.lean` | `print_compact` |
+| `Proofs/Builder.lean` | `printBA_eq`: the linear printer equals the specification |
+| `Proofs/Verified.lean` | `VerifiedJson`, one field per headline specification |
+
+The codec law is the one pattern behind every round trip: an encoder, a
+decoder from a buffer and cursor, and `decode (encode a ++ rest) = .ok (a,
+(encode a).length)` for every continuation the codec can stop at. Strings,
+numbers and values are instances (`stringCodec`, `numberCodec`,
+`valueCodec`); `parse_print` and `print_injective` are corollaries of the
+general lemmas. When the shared theory library of the stack exists, `Codec`
+moves there unchanged.
+
+The parser is total by structural recursion on fuel, with `fuelFor bs pos =
+2 * (size - pos) + 1` proved always sufficient. A fuel-free, progress-indexed
+parser monad (STYLE.md, "Total parsing") would remove the fuel lemmas; that
+rewrite is planned with the shared library, and the API does not change.
+
 ### Tested, not proved
 
 Listed here with the reason, and in `docs/traceability.toml` with
-`status = "tested"`. (Nothing yet.)
+`status = "tested"`.
+
+* **`Number.ofFloat?` / `Number.toFloat`** (the `Float` bridge). Proving
+  shortest-round-trip digit generation needs a model of IEEE rounding in
+  `Float.ofScientific`, which core does not provide. Tested on random bit
+  patterns: `toFloat (ofFloat? x) = x` bit for bit, and the printed form
+  re-parses to the same bits (`tests/Props.lean`).
+* **Duplicate-key helpers** (`Json.lookupLast`, `Json.dedupKeys`): simple list
+  functions; tested for Python `dict` semantics (last value, first position,
+  distinct keys).
+* **Error kinds and offsets** for malformed input: the proofs cover what valid
+  input does; what each malformed input reports is pinned against the
+  released pydantic-core 2.50.1 in `tests/Conformance.lean` (`from_json
+  (2.50.1)` cases), and `tests/Props.lean` checks offsets stay in bounds and
+  no fuel failure appears.
+* **The `Lean.Json` bridge** (`Json.toLean`, `Json.ofLean`): goes through core's
+  `partial` printer, so nothing about it is provable; tested on its common
+  fragment.
+* **`json%`** notation: a macro; tested by the conformance cases that build
+  values with it.
 
 ## Why not `Lean.Json` <a name="why-not-lean-json"></a>
 
@@ -78,13 +125,21 @@ gives Python `dict` semantics (first position, last value).
 
 * **Duplicate keys** are kept by the parser, in order, exactly as jiter's
   `JsonValue`; lookup is last-wins (`tests/test_json.py::test_dict`).
-* **Big integers** are `Int`, unbounded (jiter `BigInt`,
-  `tests/validators/test_int.py::test_long_json`).
+* **Big integers** are `Int` (jiter `BigInt`), up to the 4300-byte limit
+  below (`tests/validators/test_int.py::test_long_json`).
 * **Floats** are kept exactly as decimals. Upstream rounds to an IEEE double
   (so `1e400` becomes `inf`); `Number.toFloat` does that rounding on demand.
   Deviation: exactness rather than early rounding.
-* **Float printing** follows serde_json/ryu (`1.0`, `1e16`, `1e-7`,
-  `1.5e300`), which is what `to_json` emits.
+* **Float printing** follows serde_json/ryu (`1.0`, `1e+16`, `1e-7`,
+  `1.5e+300`, `0.00001`), which is what `to_json` emits.
+* **Number length.** jiter rejects a number whose sign and integer digits
+  exceed 4300 bytes (`number out of range`). The default parser does the same
+  (`ParseCfg.maxIntLen`); `ParseCfg.lossless` lifts it. Upstream counts the
+  sign and applies the limit to floats, unlike Python's `int` (recorded as
+  UP-025); the port matches upstream.
+* **Error offsets** follow jiter, including its surrogate-escape and UTF-8
+  cases; a lone trailing surrogate is reported as `lone leading surrogate`
+  as upstream does (UP-026, pydantic/jiter#120).
 * **NaN / Infinity** are not representable and are rejected by the parser.
   Deviation: `from_json` accepts them by default (`allow_inf_nan=True`).
 * **No recursion limit.** jiter stops at depth 200; this parser is total by

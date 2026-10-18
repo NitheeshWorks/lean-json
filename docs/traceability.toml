@@ -24,3 +24,174 @@ upstream_license = "MIT"
 # realises = ["LeanJson.Foo.bar"]
 # theorem = ["LeanJson.Foo.bar_spec"]
 # test = ["tests/Conformance.lean::name"]
+
+[[requirement]]
+id = "parse.document"
+upstream = "tests/test_json.py::test_json_invalid"
+title = "from_json parses a whole document: whitespace, one value, whitespace, end; errors carry jiter's kind, offset, line and column"
+status = "implemented"
+realises = ["LeanJson.from_json", "LeanJson.parse", "LeanJson.parseDocument", "LeanJson.JsonError.description"]
+theorem = ["LeanJson.parse_print", "LeanJson.parse_canonical", "LeanJson.parsed_of_ref"]
+test = ["tests/Conformance.lean::unterminated string", "tests/Conformance.lean::trailing comma, multi-line"]
+
+[[requirement]]
+id = "parse.prefix"
+upstream = "tests/test_json.py::test_partial_parse"
+title = "Parse one value from a cursor and report the end position (allow_partial itself is excluded)"
+status = "implemented"
+realises = ["LeanJson.parseAt", "LeanJson.parseValue"]
+theorem = ["LeanJson.parse_print_ext", "LeanJson.step_progress", "LeanJson.parsedAt_of_ref"]
+test = ["tests/Conformance.lean::partial input is an error", "tests/Props.lean::parseAt reads a value out of a concatenation"]
+
+[[requirement]]
+id = "parse.allow_partial"
+upstream = "tests/test_json.py::test_partial_parse"
+title = "from_json(allow_partial=True) returning the complete prefix of a truncated document"
+status = "excluded"
+realises = []
+theorem = []
+test = []
+
+[[requirement]]
+id = "print.compact"
+upstream = "tests/test_json.py::test_to_json"
+title = "to_json(value) is compact: ',' and ':' separators, no whitespace (Starlette JSONResponse)"
+status = "implemented"
+realises = ["LeanJson.to_json", "LeanJson.print", "LeanJson.printWith", "LeanJson.printBA"]
+theorem = ["LeanJson.print_compact", "LeanJson.print_injective", "LeanJson.printBA_eq"]
+test = ["tests/Conformance.lean::to_json([1, 2])", "tests/Props.lean::printBA agrees with printWith"]
+
+[[requirement]]
+id = "print.indent"
+upstream = "tests/test_json.py::test_to_json"
+title = "to_json(value, indent=k): serde_json pretty layout"
+status = "implemented"
+realises = ["LeanJson.PrintOpts", "LeanJson.PrintOpts.nl"]
+theorem = ["LeanJson.parse_print_ext"]
+test = ["tests/Conformance.lean::to_json([1, 2], indent=2)", "tests/Props.lean::parse (print v) = v, indent 2"]
+
+[[requirement]]
+id = "print.ensure_ascii"
+upstream = "tests/test_json.py::test_to_json"
+title = "to_json(value, ensure_ascii=True): non-ASCII as \\uXXXX, astral as surrogate pairs"
+status = "implemented"
+realises = ["LeanJson.escapeChar", "LeanJson.hex4"]
+theorem = ["LeanJson.parseString_printString_ext", "LeanJson.parseEscape_pair"]
+test = ["tests/Conformance.lean::to_json(['à', 'é'], indent=2, ensure_ascii=True)", "tests/Props.lean::ensure_ascii output is ASCII"]
+
+[[requirement]]
+id = "roundtrip.value"
+upstream = "tests/test_json.py::test_to_json"
+title = "Round trip: parse (print j) = .ok j, on any continuation, every print option"
+status = "implemented"
+realises = ["LeanJson.Codec", "LeanJson.valueCodec"]
+theorem = ["LeanJson.parse_print", "LeanJson.parseLossless_print", "LeanJson.parse_print_ext", "LeanJson.parseValue_ext", "LeanJson.Codec.decode_encode"]
+test = ["tests/Props.lean::parse (print v) = v, compact"]
+
+[[requirement]]
+id = "roundtrip.string"
+upstream = "tests/test_json.py::test_str"
+title = "Strings: escapes \\\" \\\\ \\/ \\b \\f \\n \\r \\t \\uXXXX and surrogate pairs; raw UTF-8"
+status = "implemented"
+realises = ["LeanJson.parseString", "LeanJson.printString", "LeanJson.stringCodec"]
+theorem = ["LeanJson.parseString_printString_ext", "LeanJson.string_ext", "LeanJson.strStep"]
+test = ["tests/Conformance.lean::surrogate pair", "tests/Conformance.lean::escaped slash"]
+
+[[requirement]]
+id = "roundtrip.number"
+upstream = "tests/test_json.py::test_int"
+title = "Numbers: integer literals are ints of any size up to the limit, others exact normalised decimals; serde/ryu float layout"
+status = "implemented"
+realises = ["LeanJson.parseNumber", "LeanJson.printNumber", "LeanJson.numberCodec", "LeanJson.Decimal.normalize"]
+theorem = ["LeanJson.parseNumber_printNumber_ext", "LeanJson.number_ext", "LeanJson.normalize_mul"]
+test = ["tests/Conformance.lean::big integer", "tests/Conformance.lean::float layout"]
+
+[[requirement]]
+id = "number.limit"
+upstream = "tests/validators/test_int.py::test_long_json"
+title = "jiter's 4300-byte limit on a number's sign and integer digits: 'number out of range'"
+status = "implemented"
+realises = ["LeanJson.ParseCfg", "LeanJson.ParseCfg.intLenOk", "LeanJson.ErrorKind.numberOutOfRange"]
+theorem = ["LeanJson.parseDocument_relax", "LeanJson.parseValue_relax"]
+test = ["tests/Conformance.lean::number of 4301 digits", "tests/Conformance.lean::negative number of 4300 digits"]
+
+[[requirement]]
+id = "number.float.exact"
+upstream = "tests/test_json.py::test_float"
+title = "Floats are kept as exact decimals, not rounded to f64 at parse time (1e400 stays 1e+400, upstream inf)"
+status = "deviation"
+realises = ["LeanJson.Number.toFloat", "LeanJson.Decimal"]
+theorem = []
+test = ["tests/Conformance.lean::huge exponent kept exactly"]
+
+[[requirement]]
+id = "number.float.bridge"
+upstream = "tests/serializers/test_simple.py::test_simple_serializers"
+title = "Float values serialise as their shortest round-tripping decimal (ryu); inf/NaN as null"
+status = "tested"
+realises = ["LeanJson.Number.ofFloat?", "LeanJson.Number.toFloat"]
+theorem = []
+test = ["tests/Props.lean::Float -> shortest decimal -> Float is the identity on bits", "tests/Conformance.lean::float 42.31415"]
+
+[[requirement]]
+id = "keys.duplicates"
+upstream = "tests/test_json.py::test_dict"
+title = "Duplicate object keys are kept in order; lookup is last-wins; dedupKeys gives Python dict semantics"
+status = "tested"
+realises = ["LeanJson.Json.getObjVal?", "LeanJson.Json.lookupLast", "LeanJson.Json.dedupKeys"]
+theorem = []
+test = ["tests/Conformance.lean::duplicate keys: last value wins", "tests/Props.lean::dedupKeys keeps last values, distinct keys, first positions"]
+
+[[requirement]]
+id = "inf_nan"
+upstream = "tests/test_json.py::test_inf_nan_allow"
+title = "NaN, Infinity, -Infinity are not representable; the parser rejects them (upstream from_json accepts them by default)"
+status = "deviation"
+realises = ["LeanJson.Json"]
+theorem = []
+test = ["tests/Conformance.lean::Infinity is rejected (deviation)"]
+
+[[requirement]]
+id = "recursion_limit"
+upstream = "jiter recursion limit (200 levels)"
+title = "No nesting depth limit: the parser is total by fuel and linear in depth; upstream reports 'recursion limit exceeded' past 200 levels"
+status = "deviation"
+realises = ["LeanJson.fuelFor"]
+theorem = ["LeanJson.parse_fuel_enough", "LeanJson.parse_fuel_mono"]
+test = ["tests/Props.lean::random bytes: errors in bounds, never a fuel failure"]
+
+[[requirement]]
+id = "errors.offsets"
+upstream = "tests/validators/test_json.py::test_any"
+title = "Error kinds, offsets and jiter's line/column convention, incl. surrogate and UTF-8 errors"
+status = "tested"
+realises = ["LeanJson.ErrorKind", "LeanJson.lineCol", "LeanJson.ParseErr.toJsonError"]
+theorem = []
+test = ["tests/Conformance.lean::non-string key", "tests/Conformance.lean::lone trailing surrogate", "tests/Conformance.lean::invalid UTF-8 later"]
+
+[[requirement]]
+id = "notation.json"
+upstream = "tests/test_json.py::test_to_jsonable_python_schema_serializer"
+title = "json% literal notation with spliced Lean values (IntoJson), for handlers"
+status = "tested"
+realises = ["LeanJson.IntoJson", "LeanJson.expandJsonv"]
+theorem = []
+test = ["tests/Conformance.lean::nested objects, compact"]
+
+[[requirement]]
+id = "bridge.lean_json"
+upstream = "core Lean.Json"
+title = "Conversions to and from core Lean.Json (sorted keys, last duplicate wins)"
+status = "tested"
+realises = ["LeanJson.Json.toLean", "LeanJson.Json.ofLean"]
+theorem = []
+test = ["tests/Props.lean::Lean.Json bridge: ofLean (toLean v) = v on its common fragment"]
+
+[[requirement]]
+id = "fuel"
+upstream = "jiter (total parsing)"
+title = "Parser is total: structural recursion on fuel; the API's budget never runs out; more fuel never changes an answer"
+status = "implemented"
+realises = ["LeanJson.parseValueWith", "LeanJson.fuelFor"]
+theorem = ["LeanJson.parse_fuel_enough", "LeanJson.parse_fuel_mono", "LeanJson.step_progress"]
+test = ["tests/Props.lean::random bytes: errors in bounds, never a fuel failure"]

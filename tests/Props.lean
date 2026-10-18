@@ -34,7 +34,149 @@ structure Property where
   name : String
   check : Rng → Option String × Rng
 
-def properties : List Property := []
+open LeanJson
+
+def Rng.pick {α : Type} [Inhabited α] (r : Rng) (xs : List α) : α × Rng :=
+  let (i, r) := r.nat xs.length
+  (xs[i]!, r)
+
+/-- A random character: ASCII, controls, quotes, BMP, astral. -/
+def genChar (r : Rng) : Char × Rng :=
+  let (k, r) := r.nat 6
+  match k with
+  | 0 => let (n, r) := r.nat 32; (Char.ofNat n, r)
+  | 1 => r.pick ['"', '\\', '/', ' ', '\n', '\t', Char.ofNat 127]
+  | 2 => let (n, r) := r.nat 0xD000; (Char.ofNat (0x80 + n), r)
+  | 3 => let (n, r) := r.nat 0x100000; (Char.ofNat (0x10000 + n), r)
+  | _ => let (n, r) := r.nat 95; (Char.ofNat (32 + n), r)
+
+def genString (r : Rng) : String × Rng := Id.run do
+  let (len, r0) := r.nat 12
+  let mut g := r0
+  let mut cs : List Char := []
+  for _ in [0:len] do
+    let (c, g') := genChar g
+    g := g'
+    cs := c :: cs
+  (String.ofList cs, g)
+
+def genNumber (r : Rng) : Number × Rng :=
+  let (k, r) := r.nat 4
+  match k with
+  | 0 => let (n, r) := r.nat 1000; (.int ((n : Int) - 500), r)
+  | 1 =>
+    let (n, r) := r.next
+    let (e, r) := r.nat 30
+    (.int ((n.toNat : Int) * 10 ^ e * (if e % 2 = 0 then 1 else -1)), r)
+  | _ =>
+    let (m, r) := r.next
+    let (e, r) := r.nat 80
+    let (s, r) := r.nat 2
+    (.float (Decimal.normalize (s = 1) (m.toNat % 10 ^ ((e % 19) + 1)) ((e : Int) - 40)), r)
+
+def genJson : Nat → Rng → Json × Rng
+  | 0, r => let (n, r) := genNumber r; (.num n, r)
+  | d + 1, r =>
+    let (k, r) := r.nat 8
+    match k with
+    | 0 => (.null, r)
+    | 1 => let (b, r) := r.nat 2; (.bool (b = 1), r)
+    | 2 => let (n, r) := genNumber r; (.num n, r)
+    | 3 => let (s, r) := genString r; (.str s, r)
+    | 4 | 5 => Id.run do
+      let (len, r0) := r.nat 4
+      let mut g := r0
+      let mut xs : List Json := []
+      for _ in [0:len] do
+        let (x, g') := genJson d g
+        g := g'
+        xs := x :: xs
+      (.arr xs, g)
+    | _ => Id.run do
+      let (len, r0) := r.nat 4
+      let mut g := r0
+      let mut kvs : List (String × Json) := []
+      for _ in [0:len] do
+        let (kk, g1) := g.nat 3
+        let (s, g2) := genString g1
+        let (x, g3) := genJson d g2
+        g := g3
+        kvs := ((if kk = 0 then "k" else s), x) :: kvs
+      (.obj kvs, g)
+
+def checkRoundTrip (o : PrintOpts) (r : Rng) : Option String × Rng :=
+  let (v, r) := genJson 4 r
+  let b := (print v o).val
+  match parse b with
+  | .ok w => (if w.val == v then none else some s!"{v} reparsed as {w.val}", r)
+  | .error e => (some s!"{v}: {e.description}", r)
+
+def finiteFloat (r : Rng) : Float × Rng :=
+  let (bits, r) := r.next
+  let x := Float.ofBits bits
+  if x.isNaN || x.isInf then (1.5, r) else (x, r)
+
+def properties : List Property := [
+  ⟨"parse (print v) = v, compact", checkRoundTrip {}⟩,
+  ⟨"parse (print v) = v, indent 2", checkRoundTrip { indent := some 2 }⟩,
+  ⟨"parse (print v) = v, ensure_ascii", checkRoundTrip { ensureAscii := true }⟩,
+  ⟨"ensure_ascii output is ASCII", fun r =>
+    let (v, r) := genJson 4 r
+    let b := (print v { ensureAscii := true }).val
+    (if b.data.all (· < 128) then none else some s!"{v}", r)⟩,
+  ⟨"printBA agrees with printWith", fun r =>
+    let (v, r) := genJson 4 r
+    (if printBA {} v == (printWith {} 0 v).toByteArray then none else some s!"{v}", r)⟩,
+  ⟨"parseAt reads a value out of a concatenation", fun r =>
+    let (a, r) := genJson 3 r
+    let (b, r) := genJson 3 r
+    let pa := (print a).val
+    let buf := pa ++ " ".toUTF8 ++ (print b).val
+    match parseAt buf 0 with
+    | .ok x => (if x.val == (a, pa.size) then none else some s!"{a} then {b}", r)
+    | .error e => (some e.description, r)⟩,
+  ⟨"Float -> shortest decimal -> Float is the identity on bits", fun r =>
+    let (x, r) := finiteFloat r
+    match Number.ofFloat? x with
+    | some n => (if n.toFloat.toBits == x.toBits then none else some s!"{x} via {Json.num n}", r)
+    | none => (some s!"{x}: no decimal", r)⟩,
+  ⟨"printed Float re-parses to the same bits", fun r =>
+    let (x, r) := finiteFloat r
+    match from_json (to_json x).val with
+    | .ok v => match v.val with
+      | .num n => (if n.toFloat.toBits == x.toBits then none else some s!"{x}", r)
+      | _ => (some s!"{x}: not a number", r)
+    | .error e => (some s!"{x}: {e.description}", r)⟩,
+  ⟨"dedupKeys keeps last values, distinct keys, first positions", fun r =>
+    let (v, r) := genJson 3 r
+    match v with
+    | .obj kvs =>
+      let dd := Json.dedupKeys kvs
+      let keys := dd.map (·.1)
+      let distinct := keys.eraseDups.length == keys.length
+      let same := kvs.all fun kv => Json.lookupLast kv.1 dd == Json.lookupLast kv.1 kvs
+      let order := keys == (kvs.map (·.1)).eraseDups
+      (if distinct && same && order then none else some s!"{v}", r)
+    | _ => (none, r)⟩,
+  ⟨"random bytes: errors in bounds, never a fuel failure", fun r => Id.run do
+    let (len, r0) := r.nat 24
+    let mut g := r0
+    let mut bs : ByteArray := .empty
+    for _ in [0:len] do
+      let (b, g') := g.pick [34, 91, 93, 123, 125, 44, 58, 32, 10, 48, 49, 45, 46, 101, 116, 110, 92, 117, 97, 0xc3, 0xa9]
+      g := g'
+      bs := bs.push (UInt8.ofNat b)
+    match parse bs with
+    | .ok _ => (none, g)
+    | .error e =>
+      (if e.offset ≤ bs.size && e.kind != .recursionLimitExceeded then none
+       else some s!"{bs.data}: {e.description}", g)⟩,
+  ⟨"Lean.Json bridge: ofLean (toLean v) = v on its common fragment", fun r =>
+    let (n, r) := r.nat 1000
+    let (s, r) := genString r
+    let v : Json := json% {"a": [(n : Nat), true, null], "b": s, "c": {"d": -3}}
+    (if Json.ofLean v.toLean == v then none else some s!"{v}", r)⟩
+]
 
 def main (args : List String) : IO UInt32 := do
   let seed := (args.head? >>= String.toNat?).getD 88172645463325252
