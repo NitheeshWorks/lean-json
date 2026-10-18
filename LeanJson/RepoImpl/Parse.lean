@@ -1254,6 +1254,64 @@ theorem smallValue_BA (bs : ByteArray) (base : Nat) :
     simp only [digitAt, hg, Option.getD_some, show base + (start + 1) = base + start + 1 by omega,
       show base + start + 1 + k = base + start + (k + 1) by omega]
 
+/-- `smallValue` of at most 18 digits of the buffer, in machine arithmetic. -/
+theorem leaf64_eq (bs : ByteArray) (base start k : Nat) (hk : k ≤ 18) (hs : base + start + k ≤ bs.size)
+    (hd : ∀ i (hi : i < bs.size), base + start ≤ i → i < base + start + k → isDigit bs[i] = true) :
+    (digitsVal64 bs (base + start) (base + start + k) 0).toNat = smallValue (rebase (bv bs) base) start k 0 := by
+  rw [smallValue_BA bs base k start 0 hs, digitsVal64_eq bs _ _ 0 hd (by
+    simp only [UInt64.reduceToNat, Nat.zero_add, Nat.one_mul]
+    calc 10 ^ (base + start + k - (base + start)) ≤ 10 ^ 18 := Nat.pow_le_pow_right (by decide) (by omega)
+      _ ≤ 2 ^ 64 := by decide)]
+  rfl
+
+/-- `chunksValue` on the buffer, the runs read in machine arithmetic. -/
+def chunksBA (bs : ByteArray) (i m : Nat) : Nat :=
+  if m ≤ 1 then (digitsVal64 bs i (i + 18 * m) 0).toNat
+  else
+    let h := m / 2
+    chunksBA bs i h * pow18 (m - h) + chunksBA bs (i + 18 * h) (m - h)
+termination_by m
+
+theorem chunksBA_eq (bs : ByteArray) (base start m : Nat) (hs : base + start + 18 * m ≤ bs.size)
+    (hd : ∀ i (hi : i < bs.size), base + start ≤ i → i < base + start + 18 * m → isDigit bs[i] = true) :
+    chunksBA bs (base + start) m = chunksValue (rebase (bv bs) base) start m := by
+  rw [chunksBA, chunksValue]
+  by_cases hm : m ≤ 1
+  · rw [ite_eq_left hm, ite_eq_left hm]
+    exact leaf64_eq bs base start (18 * m) (by omega) hs hd
+  · rw [ite_eq_right hm, ite_eq_right hm]
+    dsimp only
+    rw [chunksBA_eq bs base start (m / 2) (by omega) (fun i hi h1 h2 => hd i hi h1 (by omega)),
+      show base + start + 18 * (m / 2) = base + (start + 18 * (m / 2)) by omega,
+      chunksBA_eq bs base (start + 18 * (m / 2)) (m - m / 2) (by omega)
+        (fun i hi h1 h2 => hd i hi (by omega) (by omega))]
+termination_by m
+decreasing_by all_goals omega
+
+/-- The value of the digits from `i` to `j` of the buffer: `digitsValue`
+with every run of 18 digits read in machine arithmetic (`bigValBA_eq`). -/
+@[inline] def bigValBA (bs : ByteArray) (i j : Nat) : Nat :=
+  if j - i ≤ 18 then (digitsVal64 bs i j 0).toNat
+  else
+    let r := (j - i) % 18
+    (digitsVal64 bs i (i + r) 0).toNat * pow18 ((j - i) / 18) + chunksBA bs (i + r) ((j - i) / 18)
+
+theorem bigValBA_eq (bs : ByteArray) (base len : Nat) (hs : base + len ≤ bs.size)
+    (hd : ∀ i (hi : i < bs.size), base ≤ i → i < base + len → isDigit bs[i] = true) :
+    bigValBA bs base (base + len) = digitsValue (rebase (bv bs) base) 0 len := by
+  unfold bigValBA digitsValue
+  rw [show base + len - base = len by omega]
+  by_cases hl : len ≤ 18
+  · rw [ite_eq_left hl, ite_eq_left hl]
+    exact leaf64_eq bs base 0 len hl hs hd
+  · rw [ite_eq_right hl, ite_eq_right hl]
+    dsimp only
+    have e1 := leaf64_eq bs base 0 (len % 18) (by omega) (by omega) (fun i hi h1 h2 => hd i hi (by omega) (by omega))
+    have e2 := chunksBA_eq bs base (len % 18) (len / 18) (by omega) (fun i hi h1 h2 => hd i hi (by omega) (by omega))
+    simp only [Nat.add_zero] at e1
+    simp only [Nat.zero_add]
+    rw [e1, e2]
+
 /-- After the digits of an integer: no fraction. -/
 theorem parseFrac_noneBA {bs : ByteArray} {base len : Nat} (h : (byteAt bs (base + len) == 46) = false) :
     parseFrac (rebase (bv bs) base) (bs.size - base) len = .ok (0, 0, len) := by
@@ -1278,15 +1336,15 @@ theorem parseExp_noneBA {bs : ByteArray} {base len : Nat} (h : (byteAt bs (base 
     rw [ite_eq_right (by simpa using h)]
   · rw [rd_none hl]
 
-/-- An integer of at most 18 digits, with no fraction or exponent after it,
-read straight from the buffer; any other number goes to `parseNumber`
+/-- An integer with no fraction or exponent after it, read straight from the
+buffer (`bigValBA`); any other number goes to `parseNumber`
 (`numBA_eq`). -/
 @[inline] def numBA (cfg : ParseCfg) (bs : ByteArray) (base : Nat) : Except ParseErr (Json × Nat) :=
   let e := digitsEnd bs base
   let nx := byteAt bs e
-  if base < e ∧ e ≤ base + 18 ∧ (byteAt bs base != 48 || e = base + 1) ∧
+  if base < e ∧ (byteAt bs base != 48 || e = base + 1) ∧
       (nx == 46 || nx == 101 || nx == 69) = false ∧ cfg.intLenOk (e - base) = true then
-    .ok (Json.ofNumber (.int ((digitsVal64 bs base e 0).toNat : Nat)), e - base)
+    .ok (Json.ofNumber (.int (bigValBA bs base e : Nat)), e - base)
   else (parseNumber cfg (rebase (bv bs) base) (bs.size - base) 0).map fun r => (Json.ofNumber r.1, r.2)
 
 theorem numBA_eq (cfg : ParseCfg) (bs : ByteArray) (base : Nat) :
@@ -1296,16 +1354,17 @@ theorem numBA_eq (cfg : ParseCfg) (bs : ByteArray) (base : Nat) :
   dsimp only
   split
   · rename_i h
-    obtain ⟨h1, h2, h3, h4, h5⟩ := h
+    obtain ⟨h1, h3, h4, h5⟩ := h
     have hb : base < bs.size := by
       apply Classical.byContradiction; intro hb
       rw [digitsEnd, dite_eq_right hb] at h1; omega
     have hle := digitsEnd_le bs base (by omega)
     have hd0 := digitsEnd_digit bs base base hb (Nat.le_refl _) h1
-    rw [digitsVal64_eq bs base _ 0 (digitsEnd_digit bs base) (by
-      simp only [UInt64.reduceToNat, Nat.zero_add, Nat.one_mul]
-      calc 10 ^ (digitsEnd bs base - base) ≤ 10 ^ 18 := Nat.pow_le_pow_right (by decide) (by omega)
-        _ ≤ 2 ^ 64 := by decide)]
+    have hbig : bigValBA bs base (digitsEnd bs base) =
+        digitsValue (rebase (bv bs) base) 0 (digitsEnd bs base - base) := by
+      rw [← bigValBA_eq bs base _ (by omega) (fun i hi h1 h2 => digitsEnd_digit bs base i hi h1 (by omega)),
+        show base + (digitsEnd bs base - base) = digitsEnd bs base by omega]
+    rw [hbig]
     have e0 : base + 0 = base := rfl
     have g0 : rebase (bv bs) base 0 = some bs[base] := rd_some hb
     have hne : (bs[base] == 45) = false := by
@@ -1313,7 +1372,7 @@ theorem numBA_eq (cfg : ParseCfg) (bs : ByteArray) (base : Nat) :
       simp only [beq_eq_false_iff_ne, ne_eq]; intro h; rw [h] at hd0; exact absurd hd0.1 (by decide)
     -- the integer part
     have hint : parseIntPart (rebase (bv bs) base) (bs.size - base) 0 =
-        .ok (digitsVal bs base (digitsEnd bs base) 0, digitsEnd bs base - base) := by
+        .ok (digitsValue (rebase (bv bs) base) 0 (digitsEnd bs base - base), digitsEnd bs base - base) := by
       unfold parseIntPart
       rw [g0]
       dsimp only
@@ -1323,8 +1382,9 @@ theorem numBA_eq (cfg : ParseCfg) (bs : ByteArray) (base : Nat) :
         have he : digitsEnd bs base = base + 1 := by
           rw [byteAt_of_lt hb, hz] at h3; simpa using h3
         rw [he]
-        have hv : digitsVal bs base (base + 1) 0 = 0 := by
-          rw [digitsVal, dite_eq_left ⟨by omega, hb⟩, digitsVal, dite_eq_right (by omega), hz]; rfl
+        have hv : digitsValue (rebase (bv bs) base) 0 (base + 1 - base) = 0 := by
+          rw [show base + 1 - base = 1 by omega]
+          simp [digitsValue, smallValue, digitAt, g0, hz]
         rw [hv, show base + 1 - base = 0 + 1 by omega]
         by_cases h1' : base + (0 + 1) < bs.size
         · rw [rd_some h1']
@@ -1335,10 +1395,6 @@ theorem numBA_eq (cfg : ParseCfg) (bs : ByteArray) (base : Nat) :
         · rw [rd_none h1']
       · rw [ite_eq_right z, ite_eq_left hd0, scanDigits_BA]
         simp only [Nat.add_zero, Nat.zero_add]
-        congr 2
-        unfold digitsValue
-        rw [ite_eq_left (by omega), smallValue_BA bs base _ 0 0 (by omega)]
-        simp only [Nat.add_zero, show base + (digitsEnd bs base - base) = digitsEnd bs base by omega]
     have hlen : base + (digitsEnd bs base - base) = digitsEnd bs base := by omega
     have hf : (byteAt bs (base + (digitsEnd bs base - base)) == 46) = false := by
       rw [hlen]; simp only [Bool.or_eq_false_iff] at h4; exact h4.1.1

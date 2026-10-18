@@ -185,7 +185,13 @@ is hashed and compared straight from the input bytes (`keyHashBA_eq`,
   chain) for `String` keys (last-wins, `getObjVal?`) and `Nat` indices
   (`getArrVal?`): `data["name"]?`, `data[0]?`.
 * **Big integers** are `Int` (jiter `BigInt`), up to the 4300-byte limit
-  below (`tests/validators/test_int.py::test_long_json`).
+  below (`tests/validators/test_int.py::test_long_json`). Deviation, in
+  speed only: 5000 integers of 4000 digits parse in 472 ms against
+  pydantic-core's 147 ms (3.2x, the one case over 2x). Each big `Nat`
+  operation costs Lean's runtime a fixed 110-200 ns, and building a 4000-digit
+  number from machine words takes at least 442 of them (243 ms for the 5000
+  before any digit is read); Lean has no primitive that builds a `Nat` from
+  limbs or digits at once. The measurements are in `docs/performance.md`.
 * **Floats** are kept exactly as decimals. Upstream rounds to an IEEE double
   (so `1e400` becomes `inf`); `Number.toFloat` does that rounding on demand.
   Deviation: exactness rather than early rounding.

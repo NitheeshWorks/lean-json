@@ -147,10 +147,16 @@ fails the build):
 
 | input | pydantic-core 2.50.1 | lean-json |
 |---|---|---|
-| 2 MB object, 152k distinct keys | 44-52 ms | 91-150 ms |
-| 20 MB object, 1.4 M distinct keys | 1.4 s | 1.8-2.1 s |
-| 20 MB object, keys cycling through 1000 names | 174 ms | 0.56-0.88 s |
-| 10000 keys sharing one bucket of a plain `Std.HashMap String Nat` (`tests/fixtures/collide-keys.txt`), 4 passes | - | 16-20 ms (plain `Std.HashMap`: 4.2 s) |
+| 2 MB object, 152k distinct keys | 31 ms | 54 ms |
+| 20 MB object, 1.4 M distinct keys | 1.03 s | 1.29 s |
+| 20 MB object, keys cycling through 1000 names | 169 ms | 298 ms |
+| 10000 keys sharing one bucket of a plain `Std.HashMap String Nat` (`tests/fixtures/collide-keys.txt`), 4 passes | - | 10 ms (plain `Std.HashMap`: 4.2 s) |
+
+Parsing and printing are within 2x of pydantic-core 2.50.1 on wide, repeated
+and long keys, escapes, surrogate pairs and large strings, with every fast
+path a proved `@[csimp]` swap. Integers of thousands of digits are the one
+exception, 3.2x, bounded by the cost of Lean's big-number operations: the
+ratios, method and the reason are in [docs/performance.md](docs/performance.md).
 
 ## Differences from pydantic-core
 

@@ -208,6 +208,42 @@ def properties : List Property := [
       let list := dd == Json.dedupKeysList kvs.toList
       (if distinct && same && order && list then none else some s!"{v}", r)
     | _ => (none, r)⟩,
+  ⟨"long integers (1 to 900 digits) parse to their value, as String.toNat? reads it", fun r => Id.run do
+    let (len, r0) := r.nat 900
+    let mut g := r0
+    let mut ds : List Char := []
+    for i in [0:len + 1] do
+      let (d, g') := g.nat 10
+      g := g'
+      ds := Char.ofNat (48 + (if i = 0 then d % 9 + 1 else d)) :: ds
+    let (neg, g4) := g.nat 2
+    let digits := String.ofList ds.reverse
+    let text := (if neg = 1 then "-" else "") ++ digits
+    let want : Int := match digits.toNat? with
+      | some n => if neg = 1 then -(n : Int) else n
+      | none => 0
+    match from_json s!"[{text}, {text}]" with
+    | .ok v => (if v.val == .arr #[.num (.int want), .num (.int want)] then none else some text, g4)
+    | .error e => (some s!"{text}: {e.description}", g4)⟩,
+  ⟨"objects of long, repeated ASCII keys parse to Json.dedupKeysList of their members", fun r => Id.run do
+    -- keys of 0 to 100 bytes sharing long prefixes: over 16 bytes a key is cut
+    -- from the buffer, over 64 only its first 64 bytes are hashed
+    let pre := String.ofList (List.replicate 70 'k')
+    let (n, r0) := r.nat 30
+    let mut g := r0
+    let mut kvs : List (String × Json) := []
+    for i in [0:n] do
+      let (len, g1) := g.nat 101
+      let (tail, g2) := g1.nat 4
+      let (esc, g3) := g2.nat 8
+      g := g3
+      let k := (pre.take (len % 70)).toString ++ toString tail ++ (if esc = 0 then "é\n" else "")
+      kvs := (k, .num (.int i)) :: kvs
+    let ms := kvs.reverse
+    let v := Json.obj ms.toArray
+    match from_json (to_json v).val with
+    | .ok w => (if w.val == .obj (Json.dedupKeysList ms).toArray then none else some s!"{v}", g)
+    | .error e => (some s!"{v}: {e.description}", g)⟩,
   ⟨"random bytes: errors in bounds, results within the depth limit", fun r => Id.run do
     let (len, r0) := r.nat 24
     let mut g := r0

@@ -62,29 +62,33 @@ termination_by n - pos
   | _, 0, acc => acc
   | start, k + 1, acc => smallValue get (start + 1) k (acc * 10 + digitAt get start)
 
-/-- `10^18`, built once (a literal this large would be rebuilt from its
-digits at every use in compiled code). -/
-def chunkBase : Nat := 10 ^ 18
+/-- `10^(18·k)` for `k < 256`, built once when the program starts. -/
+def pow18Table : Array Nat := Array.ofFn (n := 256) fun k => 10 ^ (18 * k.val)
 
-/-- `k` runs of 18 digits from `start`, appended to `acc` (Horner's rule in
-base `10^18`): one small multiplication per 18 digits. -/
-@[specialize] def chunkValue (get : Nat → Option UInt8) : (start k acc : Nat) → Nat
-  | _, 0, acc => acc
-  | start, k + 1, acc => chunkValue get (start + 18) k (acc * chunkBase + smallValue get start 18 0)
+/-- `10^(18·m)`, read from `pow18Table` when it is there. -/
+@[inline] def pow18 (m : Nat) : Nat :=
+  if h : m < 256 then pow18Table[m]'(by simp [pow18Table]; omega) else 10 ^ (18 * m)
+
+/-- The value of `m` runs of 18 digits from `start`, by divide and conquer:
+each run is read in machine arithmetic, and the runs are joined pairwise, so
+most big-number operations are on small numbers. (Horner's rule would make
+every step an operation on the whole number read so far.) -/
+@[specialize] def chunksValue (get : Nat → Option UInt8) (start m : Nat) : Nat :=
+  if m ≤ 1 then smallValue get start (18 * m) 0
+  else
+    let h := m / 2
+    chunksValue get start h * pow18 (m - h) + chunksValue get (start + 18 * h) (m - h)
+termination_by m
 
 /-- The value of the `len` digits from `start`: machine arithmetic up to 18
-digits, Horner's rule in base `10^18` up to 4320 (Python's integer limit is
-4300), and divide and conquer beyond, so a very long digit run costs a few
-big multiplications rather than a quadratic number of small ones. -/
+digits, beyond that the leading `len % 18` digits and then `chunksValue`. A
+big-number operation costs Lean's runtime a fixed 100-200 ns whatever the
+size, so the count of operations, about two per 18 digits, sets the cost. -/
 @[specialize] def digitsValue (get : Nat → Option UInt8) (start len : Nat) : Nat :=
   if len ≤ 18 then smallValue get start len 0
-  else if len ≤ 600 then
-    let r := len % 18
-    chunkValue get (start + r) (len / 18) (smallValue get start r 0)
   else
-    let h := len / 2
-    digitsValue get start h * 10 ^ (len - h) + digitsValue get (start + h) (len - h)
-termination_by len
+    let r := len % 18
+    smallValue get start r 0 * pow18 (len / 18) + chunksValue get (start + r) (len / 18)
 
 /-- At least one digit at `pos`: (value, count, position after), else an error
 (end of input: `EOF while parsing a value`; anything else: `invalid number`). -/
