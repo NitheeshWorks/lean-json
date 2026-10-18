@@ -46,32 +46,74 @@ def printNat (n : Nat) : List UInt8 := (natDigits n).map digitByte
 def printInt (i : Int) : List UInt8 :=
   if i < 0 then 45 :: printNat i.natAbs else printNat i.toNat
 
-/-- Strip trailing decimal zeros from a nonzero mantissa, raising the exponent
-to match. `m ≤ fuel` suffices. -/
-def stripZeros : (fuel m : Nat) → (e : Int) → Nat × Int
-  | 0, m, e => (m, e)
-  | f + 1, m, e => if m ≠ 0 ∧ m % 10 = 0 then stripZeros f (m / 10) (e + 1) else (m, e)
+/-- Binary search for the number of trailing decimal zeros of `m`: the
+invariant is `10^lo ∣ m` and `¬ 10^hi ∣ m`. Logarithmically many big-number
+operations, so normalising a long literal stays fast. -/
+def tzSearch (m : Nat) : (fuel lo hi : Nat) → Nat
+  | 0, lo, _ => lo
+  | f + 1, lo, hi =>
+    if hi ≤ lo + 1 then lo
+    else
+      let mid := (lo + hi) / 2
+      if m % 10 ^ mid = 0 then tzSearch m f mid hi else tzSearch m f lo mid
 
-theorem stripZeros_spec : ∀ (f m : Nat) (e : Int), m ≠ 0 → m ≤ f →
-    (stripZeros f m e).1 % 10 ≠ 0
-  | 0, m, _, hm, hf => by omega
-  | f + 1, m, e, hm, hf => by
-    unfold stripZeros
-    by_cases h : m ≠ 0 ∧ m % 10 = 0
-    · rw [ite_eq_left h]
-      exact stripZeros_spec f (m / 10) (e + 1) (by omega) (by omega)
-    · rw [ite_eq_right h]; simp only; omega
+/-- The number of trailing decimal zeros of a nonzero `m`. -/
+def trailingZeros (m : Nat) : Nat := tzSearch m (m.log2 + 2) 0 (m.log2 + 1)
+
+theorem tzSearch_spec (m : Nat) : ∀ (f lo hi : Nat), m % 10 ^ lo = 0 → m % 10 ^ hi ≠ 0 → lo < hi →
+    hi - lo ≤ f + 1 → m % 10 ^ tzSearch m f lo hi = 0 ∧ m % 10 ^ (tzSearch m f lo hi + 1) ≠ 0
+  | 0, lo, hi, h1, h2, h3, h4 => by
+    have : hi = lo + 1 := by omega
+    subst this; exact ⟨h1, h2⟩
+  | f + 1, lo, hi, h1, h2, h3, h4 => by
+    unfold tzSearch
+    by_cases hc : hi ≤ lo + 1
+    · rw [ite_eq_left hc]
+      have : hi = lo + 1 := by omega
+      subst this; exact ⟨h1, h2⟩
+    · rw [ite_eq_right hc]
+      simp only
+      by_cases hm : m % 10 ^ ((lo + hi) / 2) = 0
+      · rw [ite_eq_left hm]
+        exact tzSearch_spec m f _ hi hm h2 (by omega) (by omega)
+      · rw [ite_eq_right hm]
+        exact tzSearch_spec m f lo _ h1 hm (by omega) (by omega)
+
+theorem pow_ten_not_dvd (m : Nat) (hm : m ≠ 0) : m % 10 ^ (m.log2 + 1) ≠ 0 := by
+  have h1 : m < 2 ^ (m.log2 + 1) := Nat.lt_log2_self
+  have h2 : 2 ^ (m.log2 + 1) ≤ 10 ^ (m.log2 + 1) := Nat.pow_le_pow_left (by omega) _
+  rw [Nat.mod_eq_of_lt (by omega)]; exact hm
+
+theorem trailingZeros_spec (m : Nat) (hm : m ≠ 0) :
+    m % 10 ^ trailingZeros m = 0 ∧ m % 10 ^ (trailingZeros m + 1) ≠ 0 :=
+  tzSearch_spec m _ 0 _ (by simp [Nat.mod_one]) (pow_ten_not_dvd m hm) (by omega) (by omega)
+
+theorem div_pow_mod_ne (m k : Nat) (h1 : m % 10 ^ k = 0) (h2 : m % 10 ^ (k + 1) ≠ 0) :
+    m / 10 ^ k % 10 ≠ 0 := by
+  intro h
+  obtain ⟨q, hq⟩ := Nat.dvd_of_mod_eq_zero h1
+  have hd : m / 10 ^ k = q := by
+    rw [hq, Nat.mul_div_cancel_left _ (Nat.pow_pos (by decide : 0 < 10))]
+  rw [hd] at h
+  obtain ⟨r, hr⟩ := Nat.dvd_of_mod_eq_zero h
+  apply h2
+  rw [hq, hr, Nat.pow_succ, ← Nat.mul_assoc]
+  exact Nat.mul_mod_right _ _
 
 /-- The normal form of `(-1)^neg * m * 10^e`. -/
 def Decimal.normalize (neg : Bool) (m : Nat) (e : Int) : Decimal :=
   if hm : m = 0 then ⟨neg, 0, 0, Or.inl ⟨rfl, rfl⟩⟩
-  else ⟨neg, (stripZeros m m e).1, (stripZeros m m e).2,
-    Or.inr (stripZeros_spec m m e hm (Nat.le_refl _))⟩
+  else ⟨neg, m / 10 ^ trailingZeros m, e + trailingZeros m,
+    Or.inr (div_pow_mod_ne m _ (trailingZeros_spec m hm).1 (trailingZeros_spec m hm).2)⟩
 
 /-- The integer value of a decimal, when it has one (exponent `≥ 0`; in normal
-form a negative exponent means a fractional part). -/
+form a negative exponent means a fractional part). An exponent above 4300 gives
+`none`: upstream reads such a literal as a float `inf`, never as an int. -/
 def Decimal.toInt? (d : Decimal) : Option Int :=
   if d.exp < 0 then none
+  -- Python's `int` digit limit: anything longer is not an integer pydantic
+  -- accepts, and computing it would exhaust memory.
+  else if d.exp > 4300 then none
   else
     let v : Int := (d.mant * 10 ^ d.exp.toNat : Nat)
     some (if d.neg then -v else v)

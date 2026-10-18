@@ -10,7 +10,7 @@ Strings are escaped as serde_json does (`\"`, `\\`, `\b \f \n \r \t`,
 other control characters as lowercase `\u00XX`, everything else raw UTF-8);
 with `ensureAscii` every non-ASCII character becomes `\uXXXX` (a surrogate
 pair above the BMP). Floats use the shortest-form layout of the `ryu` crate
-that serde_json formats with (`1.0`, `0.001`, `1e16`, `1.5e-7`).
+that serde_json formats with (`1.0`, `0.001`, `1e+16`, `1.5e-7`).
 
 The printer produces a `List UInt8`; the API turns it into a `ByteArray`.
 -/
@@ -25,6 +25,10 @@ def litFalse : List UInt8 := [102, 97, 108, 115, 101]
 /-- `n` zeros as ASCII. -/
 def zeros (n : Nat) : List UInt8 := List.replicate n 48
 
+/-- An exponent as serde_json/ryu writes it: `+` or `-`, then digits. -/
+def printExp (i : Int) : List UInt8 :=
+  if i < 0 then 45 :: printNat i.natAbs else 43 :: printNat i.toNat
+
 /-- The digits of a normalised mantissa with the decimal point placed as ryu
 places it. `ds` are the mantissa's digits and `k` its exponent; `kk` is the
 position of the point relative to the first digit. -/
@@ -38,9 +42,15 @@ def layoutDecimal (ds : List Nat) (k : Int) : List UInt8 :=
   else if -5 < kk ∧ kk ≤ 0 then
     [48, 46] ++ zeros (-kk).toNat ++ ds.map digitByte
   else if ds.length = 1 then
-    ds.map digitByte ++ 101 :: printInt (kk - 1)
+    ds.map digitByte ++ 101 :: printExp (kk - 1)
   else
-    (ds.take 1).map digitByte ++ 46 :: (ds.drop 1).map digitByte ++ 101 :: printInt (kk - 1)
+    (ds.take 1).map digitByte ++ 46 :: (ds.drop 1).map digitByte ++ 101 :: printExp (kk - 1)
+
+/-- How many integer-part digits `layoutDecimal ds k` writes. -/
+def layoutIntLen (L : Nat) (k : Int) : Nat :=
+  if 0 ≤ k ∧ (L : Int) + k ≤ 16 then ((L : Int) + k).toNat
+  else if 0 < (L : Int) + k ∧ (L : Int) + k ≤ 16 then ((L : Int) + k).toNat
+  else 1
 
 /-- A float, serde_json/ryu style; `-0.0` keeps its sign. -/
 def printDecimal (d : Decimal) : List UInt8 :=
@@ -49,6 +59,12 @@ def printDecimal (d : Decimal) : List UInt8 :=
 def printNumber : Number → List UInt8
   | .int i => printInt i
   | .float d => printDecimal d
+
+/-- The bytes of the sign and integer part of `printNumber n`: what jiter's
+4300 limit (`ParseCfg.maxIntLen`) counts. -/
+def Number.intLen : Number → Nat
+  | .int i => (printInt i).length
+  | .float d => (if d.neg then 1 else 0) + layoutIntLen (natDigits d.mant).length d.exp
 
 /-- `\uXXXX` for `n < 65536`, lowercase hex. -/
 def hex4 (n : Nat) : List UInt8 :=

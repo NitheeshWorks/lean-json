@@ -31,7 +31,9 @@ theorem parseHex4_ext {bs : ByteArray} {p n : Nat} {R : List UInt8} (hn : n < 65
   have v2 := hexVal_hexByte ⟨n / 16 % 16, by omega⟩
   have v3 := hexVal_hexByte ⟨n % 16, by omega⟩
   simp only at v0 v1 v2 v3
+  have hs : ¬ bs.size < p + 4 := by have := h.le_size (by simp); simp at this; omega
   unfold parseHex4
+  rw [ite_eq_right hs]
   simp only [hexAt, g0, g1, g2, g3, v0, v1, v2, v3]
   congr 1; omega
 

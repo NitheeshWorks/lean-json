@@ -58,31 +58,31 @@ theorem expectLit_adv (bs : ByteArray) : ∀ (p : Nat) (lit : List UInt8) (q : N
       · exact (Adv.step hb).trans (expectLit_adv bs (p + 1) cs q h)
       · cases h
 
-theorem scanDigits_adv (bs : ByteArray) : ∀ (pos f acc cnt : Nat), Adv bs pos (scanDigits bs pos f acc cnt).2.2
-  | pos, 0, _, _ => Adv.refl _ _
-  | pos, f + 1, acc, cnt => by
+theorem scanDigits_adv (bs : ByteArray) : ∀ (pos f cnt : Nat), Adv bs pos (scanDigits bs pos f cnt).2
+  | pos, 0, _ => Adv.refl _ _
+  | pos, f + 1, cnt => by
     unfold scanDigits
     split
     · rename_i b hb
       split
-      · exact (Adv.step hb).trans (scanDigits_adv bs (pos + 1) f _ _)
+      · exact (Adv.step hb).trans (scanDigits_adv bs (pos + 1) f _)
       · exact Adv.refl _ _
     · exact Adv.refl _ _
 
-theorem scanDigits_move {bs : ByteArray} {pos f acc cnt : Nat} {b : UInt8} (hb : bs[pos]? = some b)
-    (hd : isDigit b = true) (hf : 0 < f) : pos < (scanDigits bs pos f acc cnt).2.2 := by
+theorem scanDigits_move {bs : ByteArray} {pos f cnt : Nat} {b : UInt8} (hb : bs[pos]? = some b)
+    (hd : isDigit b = true) (hf : 0 < f) : pos < (scanDigits bs pos f cnt).2 := by
   obtain ⟨g, rfl⟩ : ∃ g, f = g + 1 := ⟨f - 1, by omega⟩
   simp only [scanDigits, hb, hd, ↓reduceIte]
-  have := (scanDigits_adv bs (pos + 1) g (acc * 10 + (b.toNat - 48)) (cnt + 1)).1
+  have := (scanDigits_adv bs (pos + 1) g (cnt + 1)).1
   omega
 
 theorem digits1_adv {bs : ByteArray} {pos : Nat} {r : Nat × Nat × Nat} (h : digits1 bs pos = .ok r) :
     Adv bs pos r.2.2 := by
   unfold digits1 at h
   simp only at h
-  by_cases hc : (scanDigits bs pos bs.size 0 0).2.1 = 0
+  by_cases hc : (scanDigits bs pos bs.size 0).1 = 0
   · rw [ite_eq_left hc] at h; split at h <;> cases h
-  · rw [ite_eq_right hc] at h; cases h; exact scanDigits_adv bs pos _ _ _
+  · rw [ite_eq_right hc] at h; cases h; exact scanDigits_adv bs pos _ _
 
 theorem parseIntPart_adv {bs : ByteArray} {pos : Nat} {r : Nat × Nat} (h : parseIntPart bs pos = .ok r) :
     Adv bs pos r.2 ∧ pos < r.2 := by
@@ -99,7 +99,7 @@ theorem parseIntPart_adv {bs : ByteArray} {pos : Nat} {r : Nat × Nat} (h : pars
     · split at h
       · cases h
         rename_i hd
-        exact ⟨scanDigits_adv bs pos _ _ _, scanDigits_move hb hd (by have := lt_size_of_get hb; omega)⟩
+        exact ⟨scanDigits_adv bs pos _ _, scanDigits_move hb hd (by have := lt_size_of_get hb; omega)⟩
       · cases h
 
 theorem parseFrac_adv {bs : ByteArray} {pos : Nat} {r : Nat × Nat × Nat} (h : parseFrac bs pos = .ok r) :
@@ -136,13 +136,15 @@ theorem parseExp_adv {bs : ByteArray} {pos : Nat} {r : Bool × Int × Nat} (h : 
     · cases h; exact Adv.refl _ _
   · cases h; exact Adv.refl _ _
 
-theorem parseNumber_adv {bs : ByteArray} {pos : Nat} {r : Number × Nat} (h : parseNumber bs pos = .ok r) :
-    Adv bs pos r.2 ∧ pos < r.2 := by
+theorem parseNumber_adv {cfg : ParseCfg} {bs : ByteArray} {pos : Nat} {r : Number × Nat}
+    (h : parseNumber cfg bs pos = .ok r) : Adv bs pos r.2 ∧ pos < r.2 := by
   unfold parseNumber at h
   simp only [bind, Except.bind] at h
   split at h
   · cases h
   · rename_i x1 h1
+    split at h
+    · cases h
     split at h
     · cases h
     · rename_i x2 h2
@@ -172,8 +174,8 @@ theorem hexAt_ok {bs : ByteArray} {i n : Nat} (h : hexAt bs i = .ok n) : i < bs.
 theorem parseHex4_adv {bs : ByteArray} {p n : Nat} (h : parseHex4 bs p = .ok n) : Adv bs p (p + 4) := by
   unfold parseHex4 at h
   split at h
-  · rename_i h3; exact Adv.of_lt (by omega) (by have := hexAt_ok h3; omega)
-  all_goals cases h
+  · cases h
+  · rename_i hs; exact Adv.of_lt (by omega) (by omega)
 
 theorem parseEscape_adv {bs : ByteArray} {q : Nat} {r : Char × Nat} (h : parseEscape bs q = .ok r) :
     Adv bs q r.2 ∧ q < r.2 := by
@@ -217,20 +219,22 @@ theorem parseEscape_adv {bs : ByteArray} {q : Nat} {r : Char × Nat} (h : parseE
         · cases h
         split at h
         · split at h
-          · rename_i hc
-            simp only [Bool.and_eq_true, beq_iff_eq] at hc
-            obtain ⟨h5, h6⟩ := hc
-            try simp only [bind, Except.bind] at h
+          · cases h
+          · rename_i h5
             split at h
             · cases h
-            · rename_i l hl
+            · rename_i h6
               split at h
-              · have hr := (Except.ok.inj h).symm
-                rw [hr]
-                have a2 := ((a1.trans (Adv.step (by simpa [Nat.add_assoc] using h5))).trans
-                  (Adv.step (by simpa [Nat.add_assoc] using h6))).trans (parseHex4_adv hl)
-                exact ⟨by simpa [Nat.add_assoc] using a2, by simp⟩
               · cases h
+              · rename_i l hl
+                split at h
+                · have hr := (Except.ok.inj h).symm
+                  rw [hr]
+                  have a2 := ((a1.trans (Adv.step (by simpa [Nat.add_assoc] using h5))).trans
+                    (Adv.step (by simpa [Nat.add_assoc] using h6))).trans (parseHex4_adv hl)
+                  exact ⟨by simpa [Nat.add_assoc] using a2, by simp⟩
+                · cases h
+            · cases h
           · cases h
         · cases h
           exact ⟨by simpa [Nat.add_assoc] using a1, by simp⟩
@@ -285,11 +289,11 @@ theorem parseString_adv {bs : ByteArray} {pos : Nat} {r : String × Nat} (h : pa
   · cases h
 
 mutual
-theorem parseValue_adv (bs : ByteArray) : ∀ (n pos : Nat) (r : Json × Nat),
-    parseValue bs pos n = .ok r → Adv bs pos r.2 ∧ pos < r.2
-  | 0, pos, r, h => by simp [parseValue] at h
+theorem parseValue_adv (cfg : ParseCfg) (bs : ByteArray) : ∀ (n pos : Nat) (r : Json × Nat),
+    parseValueWith cfg bs pos n = .ok r → Adv bs pos r.2 ∧ pos < r.2
+  | 0, pos, r, h => by simp [parseValueWith] at h
   | n + 1, pos, r, h => by
-    unfold parseValue at h
+    unfold parseValueWith at h
     simp only at h
     have a0 := skipWs_adv bs pos bs.size
     generalize skipWs bs pos bs.size = q at h a0
@@ -315,7 +319,7 @@ theorem parseValue_adv (bs : ByteArray) : ∀ (n pos : Nat) (r : Json × Nat),
         · cases h
         · rename_i hp; cases h
           exact ⟨a1.trans (Adv.step hp), by have := a1.1; simp; omega⟩
-        · have a := parseElems_adv bs n p [] r h
+        · have a := parseElems_adv cfg bs n p [] r h
           exact ⟨a1.trans a.1, by have := a1.1; have := a.2; omega⟩
       rw [ite_eq_right c91] at h
       by_cases c123 : (b == 123) = true
@@ -326,7 +330,7 @@ theorem parseValue_adv (bs : ByteArray) : ∀ (n pos : Nat) (r : Json × Nat),
         · cases h
         · rename_i hp; cases h
           exact ⟨a1.trans (Adv.step hp), by have := a1.1; simp; omega⟩
-        · have a := parseMembers_adv bs n p [] r h
+        · have a := parseMembers_adv cfg bs n p [] r h
           exact ⟨a1.trans a.1, by have := a1.1; have := a.2; omega⟩
         · cases h
       rw [ite_eq_right c123] at h
@@ -363,15 +367,15 @@ theorem parseValue_adv (bs : ByteArray) : ∀ (n pos : Nat) (r : Json × Nat),
         · cases h
       rw [ite_eq_right cn] at h
       cases h
-theorem parseElems_adv (bs : ByteArray) : ∀ (n pos : Nat) (acc : List Json) (r : Json × Nat),
-    parseElems bs pos n acc = .ok r → Adv bs pos r.2 ∧ pos < r.2
+theorem parseElems_adv (cfg : ParseCfg) (bs : ByteArray) : ∀ (n pos : Nat) (acc : List Json) (r : Json × Nat),
+    parseElems cfg bs pos n acc = .ok r → Adv bs pos r.2 ∧ pos < r.2
   | 0, pos, acc, r, h => by simp [parseElems] at h
   | n + 1, pos, acc, r, h => by
     unfold parseElems at h
     split at h
     · cases h
     · rename_i v p1 hv
-      have a1 := parseValue_adv bs n pos _ hv
+      have a1 := parseValue_adv cfg bs n pos _ hv
       simp only at a1 h
       have a2 := a1.1.trans (skipWs_adv bs p1 bs.size)
       generalize skipWs bs p1 bs.size = p at h a2
@@ -382,13 +386,13 @@ theorem parseElems_adv (bs : ByteArray) : ∀ (n pos : Nat) (acc : List Json) (r
         generalize skipWs bs (p + 1) bs.size = q at h a3
         split at h
         · cases h
-        · have a := parseElems_adv bs n q _ r h
+        · have a := parseElems_adv cfg bs n q _ r h
           exact ⟨a3.trans a.1, by have := a1.2; have := a2.1; have := a3.1; have := a.2; omega⟩
       · rename_i hp; cases h
         exact ⟨a2.trans (Adv.step hp), by have := a1.2; have := a2.1; simp; omega⟩
       · cases h
-theorem parseMembers_adv (bs : ByteArray) : ∀ (n pos : Nat) (acc : List (String × Json)) (r : Json × Nat),
-    parseMembers bs pos n acc = .ok r → Adv bs pos r.2 ∧ pos < r.2
+theorem parseMembers_adv (cfg : ParseCfg) (bs : ByteArray) : ∀ (n pos : Nat) (acc : List (String × Json)) (r : Json × Nat),
+    parseMembers cfg bs pos n acc = .ok r → Adv bs pos r.2 ∧ pos < r.2
   | 0, pos, acc, r, h => by simp [parseMembers] at h
   | n + 1, pos, acc, r, h => by
     unfold parseMembers at h
@@ -405,7 +409,7 @@ theorem parseMembers_adv (bs : ByteArray) : ∀ (n pos : Nat) (acc : List (Strin
         split at h
         · cases h
         · rename_i v p2 hv
-          have a3 := (a2.trans (Adv.step hp)).trans (parseValue_adv bs n (p + 1) _ hv).1
+          have a3 := (a2.trans (Adv.step hp)).trans (parseValue_adv cfg bs n (p + 1) _ hv).1
           have a4 := a3.trans (skipWs_adv bs p2 bs.size)
           generalize skipWs bs p2 bs.size = p3 at h a4
           split at h
@@ -415,7 +419,7 @@ theorem parseMembers_adv (bs : ByteArray) : ∀ (n pos : Nat) (acc : List (Strin
             generalize skipWs bs (p3 + 1) bs.size = q at h a5
             split at h
             · cases h
-            · have a := parseMembers_adv bs n q _ r h
+            · have a := parseMembers_adv cfg bs n q _ r h
               exact ⟨a5.trans a.1, by have := a1.2; have := a2.1; have := a5.1; have := a.2; omega⟩
             · cases h
             · cases h
@@ -427,9 +431,9 @@ end
 
 /-- **Step progress**: a successful value parse consumes at least one byte and
 ends within the buffer. -/
-theorem step_progress : Spec.StepProgress parseValue := by
+theorem step_progress (cfg : ParseCfg) : Spec.StepProgress (parseValueWith cfg) := by
   intro bs pos fuel v p h
-  have a := parseValue_adv bs fuel pos (v, p) h
+  have a := parseValue_adv cfg bs fuel pos (v, p) h
   exact ⟨a.2, a.1.2 a.2⟩
 
 end LeanJson

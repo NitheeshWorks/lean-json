@@ -34,35 +34,43 @@ theorem digits1_nofuel (bs : ByteArray) (p : Nat) : NotFuel (digits1 bs p) := by
   · split at he <;> (cases he; simp)
   · cases he
 
-theorem parseNumber_nofuel (bs : ByteArray) (p : Nat) : NotFuel (parseNumber bs p) := by
+theorem parseIntPart_nofuel (bs : ByteArray) (p : Nat) : NotFuel (parseIntPart bs p) := by
+  intro e h1
+  unfold parseIntPart at h1
+  repeat' split at h1
+  all_goals first | (cases h1; simp) | cases h1
+
+theorem parseFrac_nofuel (bs : ByteArray) (p : Nat) : NotFuel (parseFrac bs p) := by
+  intro e h2
+  unfold parseFrac at h2
+  split at h2
+  · exact digits1_nofuel bs _ e h2
+  · cases h2
+
+theorem parseExp_nofuel (bs : ByteArray) (p : Nat) : NotFuel (parseExp bs p) := by
+  intro e h3
+  unfold parseExp at h3
+  repeat' split at h3
+  all_goals first | (cases h3; simp) | cases h3 | skip
+  all_goals
+    simp only [bind, Except.bind] at h3
+    split at h3
+    · rename_i e' hd; cases h3; exact digits1_nofuel bs _ _ hd
+    · cases h3
+
+theorem parseNumber_nofuel (cfg : ParseCfg) (bs : ByteArray) (p : Nat) : NotFuel (parseNumber cfg bs p) := by
   intro e he
   unfold parseNumber at he
   simp only [bind, Except.bind] at he
   split at he
-  · rename_i e' h1
-    cases he
-    unfold parseIntPart at h1
-    repeat' split at h1
-    all_goals first | (cases h1; simp) | cases h1
+  · rename_i e' h1; cases he; exact parseIntPart_nofuel bs _ _ h1
   · split at he
-    · rename_i e' h2
-      cases he
-      unfold parseFrac at h2
-      split at h2
-      · exact digits1_nofuel bs _ e h2
-      · cases h2
+    · cases he; simp
     · split at he
-      · rename_i e' h3
-        cases he
-        unfold parseExp at h3
-        repeat' split at h3
-        all_goals first | (cases h3; simp) | cases h3 | skip
-        all_goals
-          simp only [bind, Except.bind] at h3
-          split at h3
-          · rename_i e' hd; cases h3; exact digits1_nofuel bs _ _ hd
-          · cases h3
-      · cases he
+      · rename_i e' h2; cases he; exact parseFrac_nofuel bs _ _ h2
+      · split at he
+        · rename_i e' h3; cases he; exact parseExp_nofuel bs _ _ h3
+        · cases he
 
 theorem hexAt_nofuel (bs : ByteArray) (i : Nat) : NotFuel (hexAt bs i) := by
   intro e he; unfold hexAt at he
@@ -72,11 +80,13 @@ theorem hexAt_nofuel (bs : ByteArray) (i : Nat) : NotFuel (hexAt bs i) := by
 theorem parseHex4_nofuel (bs : ByteArray) (p : Nat) : NotFuel (parseHex4 bs p) := by
   intro e he; unfold parseHex4 at he
   split at he
-  · cases he
-  · rename_i e' h; cases he; exact hexAt_nofuel bs _ _ h
-  · rename_i e' _ h; cases he; exact hexAt_nofuel bs _ _ h
-  · rename_i e' _ _ h; cases he; exact hexAt_nofuel bs _ _ h
-  · rename_i e' _ _ _ h; cases he; exact hexAt_nofuel bs _ _ h
+  · cases he; simp
+  · split at he
+    · cases he
+    · rename_i e' h; cases he; exact hexAt_nofuel bs _ _ h
+    · rename_i e' _ h; cases he; exact hexAt_nofuel bs _ _ h
+    · rename_i e' _ _ h; cases he; exact hexAt_nofuel bs _ _ h
+    · rename_i e' _ _ _ h; cases he; exact hexAt_nofuel bs _ _ h
 
 theorem parseEscape_nofuel (bs : ByteArray) (p : Nat) : NotFuel (parseEscape bs p) := by
   intro e he; unfold parseEscape at he
@@ -119,12 +129,15 @@ theorem parseEscape_nofuel (bs : ByteArray) (p : Nat) : NotFuel (parseEscape bs 
         by_cases d2 : 55296 ≤ u ∧ u < 56320
         · rw [ite_eq_left d2] at he
           split at he
-          · try simp only [bind, Except.bind] at he
-            split at he
-            · rename_i e' hh; cases he; exact parseHex4_nofuel bs _ _ hh
+          · cases he; simp
+          · split at he
+            · cases he; simp
             · split at he
-              · cases he
-              · cases he; simp
+              · rename_i e' hh; cases he; exact parseHex4_nofuel bs _ _ hh
+              · split at he
+                · cases he
+                · cases he; simp
+            · cases he; simp
           · cases he; simp
         · rw [ite_eq_right d2] at he; cases he
     · rw [ite_eq_right c117] at he; cases he; simp
@@ -156,12 +169,12 @@ theorem parseString_nofuel (bs : ByteArray) (p : Nat) : NotFuel (parseString bs 
   · rename_i e' hh; cases he; exact parseStrBody_nofuel bs _ _ _ _ hh
 
 mutual
-theorem parseValue_enough (bs : ByteArray) : ∀ (n pos : Nat), 2 * (bs.size - pos) < n →
-    NotFuel (parseValue bs pos n)
+theorem parseValue_enough (cfg : ParseCfg) (bs : ByteArray) : ∀ (n pos : Nat), 2 * (bs.size - pos) < n →
+    NotFuel (parseValueWith cfg bs pos n)
   | 0, pos, hn => absurd hn (Nat.not_lt_zero _)
   | n + 1, pos, hn => by
     intro e he
-    unfold parseValue at he
+    unfold parseValueWith at he
     simp only at he
     have a0 := skipWs_adv bs pos bs.size
     generalize skipWs bs pos bs.size = q at he a0
@@ -183,7 +196,7 @@ theorem parseValue_enough (bs : ByteArray) : ∀ (n pos : Nat), 2 * (bs.size - p
       split at he
       · cases he; simp
       · cases he
-      · exact parseElems_enough bs n p [] (by omega) e he
+      · exact parseElems_enough cfg bs n p [] (by omega) e he
     rw [ite_eq_right c91] at he
     by_cases c123 : (b == 123) = true
     · rw [ite_eq_left c123] at he
@@ -192,7 +205,7 @@ theorem parseValue_enough (bs : ByteArray) : ∀ (n pos : Nat), 2 * (bs.size - p
       split at he
       · cases he; simp
       · cases he
-      · exact parseMembers_enough bs n p [] (by omega) e he
+      · exact parseMembers_enough cfg bs n p [] (by omega) e he
       · cases he; simp
     rw [ite_eq_right c123] at he
     by_cases c116 : (b == 116) = true
@@ -217,19 +230,19 @@ theorem parseValue_enough (bs : ByteArray) : ∀ (n pos : Nat), 2 * (bs.size - p
     · rw [ite_eq_left cn] at he
       split at he
       · cases he
-      · rename_i e' hh; cases he; exact parseNumber_nofuel bs _ _ hh
+      · rename_i e' hh; cases he; exact parseNumber_nofuel cfg bs _ _ hh
     rw [ite_eq_right cn] at he
     cases he; simp
-theorem parseElems_enough (bs : ByteArray) : ∀ (n pos : Nat) (acc : List Json),
-    2 * (bs.size - pos) + 1 < n → NotFuel (parseElems bs pos n acc)
+theorem parseElems_enough (cfg : ParseCfg) (bs : ByteArray) : ∀ (n pos : Nat) (acc : List Json),
+    2 * (bs.size - pos) + 1 < n → NotFuel (parseElems cfg bs pos n acc)
   | 0, pos, acc, hn => absurd hn (Nat.not_lt_zero _)
   | n + 1, pos, acc, hn => by
     intro e he
     unfold parseElems at he
     split at he
-    · rename_i e' hh; cases he; exact parseValue_enough bs n pos (by omega) _ hh
+    · rename_i e' hh; cases he; exact parseValue_enough cfg bs n pos (by omega) _ hh
     · rename_i v p1 hv
-      have a1 := parseValue_adv bs n pos _ hv
+      have a1 := parseValue_adv cfg bs n pos _ hv
       have h1 := a1.2; have h1' := a1.1.2 a1.2
       simp only at h1 h1' he
       have a2 := (skipWs_adv bs p1 bs.size).1
@@ -242,11 +255,11 @@ theorem parseElems_enough (bs : ByteArray) : ∀ (n pos : Nat) (acc : List Json)
         generalize skipWs bs (p + 1) bs.size = q at he a3
         split at he
         · cases he; simp
-        · exact parseElems_enough bs n q _ (by omega) e he
+        · exact parseElems_enough cfg bs n q _ (by omega) e he
       · cases he
       · cases he; simp
-theorem parseMembers_enough (bs : ByteArray) : ∀ (n pos : Nat) (acc : List (String × Json)),
-    2 * (bs.size - pos) + 1 < n → NotFuel (parseMembers bs pos n acc)
+theorem parseMembers_enough (cfg : ParseCfg) (bs : ByteArray) : ∀ (n pos : Nat) (acc : List (String × Json)),
+    2 * (bs.size - pos) + 1 < n → NotFuel (parseMembers cfg bs pos n acc)
   | 0, pos, acc, hn => absurd hn (Nat.not_lt_zero _)
   | n + 1, pos, acc, hn => by
     intro e he
@@ -264,9 +277,9 @@ theorem parseMembers_enough (bs : ByteArray) : ∀ (n pos : Nat) (acc : List (St
       · rename_i hp
         have hps := lt_size_of_get hp
         split at he
-        · rename_i e' hh; cases he; exact parseValue_enough bs n (p + 1) (by omega) _ hh
+        · rename_i e' hh; cases he; exact parseValue_enough cfg bs n (p + 1) (by omega) _ hh
         · rename_i v p2 hv
-          have b1 := (parseValue_adv bs n (p + 1) _ hv).2
+          have b1 := (parseValue_adv cfg bs n (p + 1) _ hv).2
           simp only at b1
           have a4 := (skipWs_adv bs p2 bs.size).1
           generalize skipWs bs p2 bs.size = p3 at he a4
@@ -278,7 +291,7 @@ theorem parseMembers_enough (bs : ByteArray) : ∀ (n pos : Nat) (acc : List (St
             generalize skipWs bs (p3 + 1) bs.size = q at he a5
             split at he
             · cases he; simp
-            · exact parseMembers_enough bs n q _ (by omega) e he
+            · exact parseMembers_enough cfg bs n q _ (by omega) e he
             · cases he; simp
             · cases he; simp
           · cases he
@@ -287,18 +300,18 @@ theorem parseMembers_enough (bs : ByteArray) : ∀ (n pos : Nat) (acc : List (St
 end
 
 /-- **Fuel is enough**: at the API's budget the parser never runs out. -/
-theorem parse_fuel_enough : Spec.FuelEnough parseValue := by
+theorem parse_fuel_enough (cfg : ParseCfg) : Spec.FuelEnough (parseValueWith cfg) := by
   intro bs pos e he
-  exact parseValue_enough bs _ pos (by omega) e he
+  exact parseValue_enough cfg bs _ pos (by omega) e he
 
 mutual
-theorem parseValue_mono (bs : ByteArray) : ∀ (n m pos : Nat) (r : Except ParseErr (Json × Nat)),
-    n ≤ m → parseValue bs pos n = r → NotFuel r → parseValue bs pos m = r
+theorem parseValue_mono (cfg : ParseCfg) (bs : ByteArray) : ∀ (n m pos : Nat) (r : Except ParseErr (Json × Nat)),
+    n ≤ m → parseValueWith cfg bs pos n = r → NotFuel r → parseValueWith cfg bs pos m = r
   | 0, m, pos, r, _, h, hnf => by
     subst h; exact absurd rfl (hnf _ rfl)
   | n + 1, m, pos, r, hle, h, hnf => by
     obtain ⟨m', rfl⟩ : ∃ m', m = m' + 1 := ⟨m - 1, by omega⟩
-    unfold parseValue at h ⊢
+    unfold parseValueWith at h ⊢
     try simp only at h ⊢
     generalize skipWs bs pos bs.size = q at h ⊢
     split at h
@@ -314,7 +327,7 @@ theorem parseValue_mono (bs : ByteArray) : ∀ (n m pos : Nat) (r : Except Parse
       split at h
       · rename_i hp; (try rw [hp]); exact h
       · rename_i hp; (try rw [hp]); exact h
-      · exact parseElems_mono bs n m' p [] r (by omega) h hnf
+      · exact parseElems_mono cfg bs n m' p [] r (by omega) h hnf
     rw [ite_eq_right c91] at h ⊢
     by_cases c123 : (b == 123) = true
     · rw [ite_eq_left c123] at h ⊢
@@ -322,12 +335,12 @@ theorem parseValue_mono (bs : ByteArray) : ∀ (n m pos : Nat) (r : Except Parse
       split at h
       · rename_i hp; (try rw [hp]); exact h
       · rename_i hp; (try rw [hp]); exact h
-      · rename_i hp; (try rw [hp]); exact parseMembers_mono bs n m' p [] r (by omega) h hnf
+      · rename_i hp; (try rw [hp]); exact parseMembers_mono cfg bs n m' p [] r (by omega) h hnf
       · exact h
     rw [ite_eq_right c123] at h ⊢
     exact h
-theorem parseElems_mono (bs : ByteArray) : ∀ (n m pos : Nat) (acc : List Json) (r : Except ParseErr (Json × Nat)),
-    n ≤ m → parseElems bs pos n acc = r → NotFuel r → parseElems bs pos m acc = r
+theorem parseElems_mono (cfg : ParseCfg) (bs : ByteArray) : ∀ (n m pos : Nat) (acc : List Json) (r : Except ParseErr (Json × Nat)),
+    n ≤ m → parseElems cfg bs pos n acc = r → NotFuel r → parseElems cfg bs pos m acc = r
   | 0, m, pos, acc, r, _, h, hnf => by
     subst h; exact absurd rfl (hnf _ rfl)
   | n + 1, m, pos, acc, r, hle, h, hnf => by
@@ -336,9 +349,9 @@ theorem parseElems_mono (bs : ByteArray) : ∀ (n m pos : Nat) (acc : List Json)
     split at h
     · rename_i e hv
       subst h
-      rw [parseValue_mono bs n m' pos _ (by omega) hv hnf]
+      rw [parseValue_mono cfg bs n m' pos _ (by omega) hv hnf]
     · rename_i v p1 hv
-      rw [parseValue_mono bs n m' pos _ (by omega) hv (by intro e he; cases he)]
+      rw [parseValue_mono cfg bs n m' pos _ (by omega) hv (by intro e he; cases he)]
       try simp only at h ⊢
       generalize skipWs bs p1 bs.size = p at h ⊢
       split at h
@@ -347,12 +360,12 @@ theorem parseElems_mono (bs : ByteArray) : ∀ (n m pos : Nat) (acc : List Json)
         generalize skipWs bs (p + 1) bs.size = q at h ⊢
         split at h
         · rename_i c; rw [ite_eq_left c]; exact h
-        · rename_i c; rw [ite_eq_right c]; exact parseElems_mono bs n m' q _ r (by omega) h hnf
+        · rename_i c; rw [ite_eq_right c]; exact parseElems_mono cfg bs n m' q _ r (by omega) h hnf
       · rename_i hp; (try rw [hp]); exact h
       · exact h
-theorem parseMembers_mono (bs : ByteArray) : ∀ (n m pos : Nat) (acc : List (String × Json))
+theorem parseMembers_mono (cfg : ParseCfg) (bs : ByteArray) : ∀ (n m pos : Nat) (acc : List (String × Json))
     (r : Except ParseErr (Json × Nat)),
-    n ≤ m → parseMembers bs pos n acc = r → NotFuel r → parseMembers bs pos m acc = r
+    n ≤ m → parseMembers cfg bs pos n acc = r → NotFuel r → parseMembers cfg bs pos m acc = r
   | 0, m, pos, acc, r, _, h, hnf => by
     subst h; exact absurd rfl (hnf _ rfl)
   | n + 1, m, pos, acc, r, hle, h, hnf => by
@@ -369,9 +382,9 @@ theorem parseMembers_mono (bs : ByteArray) : ∀ (n m pos : Nat) (acc : List (St
         split at h
         · rename_i e hv
           subst h
-          rw [parseValue_mono bs n m' (p + 1) _ (by omega) hv hnf]
+          rw [parseValue_mono cfg bs n m' (p + 1) _ (by omega) hv hnf]
         · rename_i v p2 hv
-          rw [parseValue_mono bs n m' (p + 1) _ (by omega) hv (by intro e he; cases he)]
+          rw [parseValue_mono cfg bs n m' (p + 1) _ (by omega) hv (by intro e he; cases he)]
           try simp only at h ⊢
           generalize skipWs bs p2 bs.size = p3 at h ⊢
           split at h
@@ -380,7 +393,7 @@ theorem parseMembers_mono (bs : ByteArray) : ∀ (n m pos : Nat) (acc : List (St
             generalize skipWs bs (p3 + 1) bs.size = q at h ⊢
             split at h
             · rename_i hq; (try rw [hq]); exact h
-            · rename_i hq; (try rw [hq]); exact parseMembers_mono bs n m' q _ r (by omega) h hnf
+            · rename_i hq; (try rw [hq]); exact parseMembers_mono cfg bs n m' q _ r (by omega) h hnf
             · rename_i hq; (try rw [hq]); exact h
             · exact h
           · rename_i hp3; (try rw [hp3]); exact h
@@ -390,8 +403,8 @@ end
 
 /-- **Fuel monotonicity**: more fuel never changes an answer that was not a
 fuel failure. -/
-theorem parse_fuel_mono : Spec.FuelMono parseValue := by
+theorem parse_fuel_mono (cfg : ParseCfg) : Spec.FuelMono (parseValueWith cfg) := by
   intro bs pos n m hle hnf
-  exact parseValue_mono bs n m pos _ hle rfl hnf
+  exact parseValue_mono cfg bs n m pos _ hle rfl hnf
 
 end LeanJson

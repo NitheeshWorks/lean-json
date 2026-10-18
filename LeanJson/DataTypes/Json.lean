@@ -7,7 +7,7 @@
 key order and duplicate keys, and core `JsonNumber` cannot tell `1` from
 `1e0` or carry `-0.0`. pydantic-core (via jiter) keeps all three, and an
 exact round trip needs them. Conversions to and from `Lean.Json` live in
-`LeanJson/RepoImpl/Lean.lean`.
+`LeanJson/RepoImpl/Access.lean`.
 
 Invariants are fields (`Decimal.h_norm`), never comments.
 -/
@@ -127,6 +127,7 @@ inductive ErrorKind where
   | trailingComma
   | trailingCharacters
   | unexpectedEndOfHexEscape
+  | numberOutOfRange
   /-- The fuel ran out. The public entry points pass enough fuel that this
   cannot happen on any input (`LeanJson.parse_fuel_enough`); it exists so
   the low-level parser is total. -/
@@ -154,6 +155,7 @@ def ErrorKind.message : ErrorKind → String
   | .trailingComma => "trailing comma"
   | .trailingCharacters => "trailing characters"
   | .unexpectedEndOfHexEscape => "unexpected end of hex escape"
+  | .numberOutOfRange => "number out of range"
   | .recursionLimitExceeded => "recursion limit exceeded"
 
 /-- A low-level parse error: what went wrong and the byte offset where it was

@@ -32,9 +32,10 @@ theorem digits1_ext {bs : ByteArray} {pos : Nat} {ds : List Nat} {rest : List UI
     (hd : Digits1 ds) (h : At bs pos (ds.map digitByte) rest) (hr : DigitStop rest) :
     digits1 bs pos = .ok (ofDigits ds, ds.length, pos + ds.length) := by
   unfold digits1
-  rw [scanDigits_ext bs rest hr ds pos bs.size 0 0 hd.2 h (by simpa using fuel_of_at h)]
+  rw [scanDigits_ext bs rest hr ds pos bs.size 0 hd.2 h (by simpa using fuel_of_at h)]
   have : ds.length ≠ 0 := by simpa using hd.1
-  simp [this, ofDigits]
+  simp only [Nat.zero_add, this, ↓reduceIte]
+  rw [digitsValue_ext ds.length ds pos hd.2 h (Nat.le_refl _)]
 
 theorem parseIntPart_ext {bs : ByteArray} {pos : Nat} {ds : List Nat} {rest : List UInt8}
     (hd : IntDigits ds) (h : At bs pos (ds.map digitByte) rest) (hr : DigitStop rest) :
@@ -59,8 +60,9 @@ theorem parseIntPart_ext {bs : ByteArray} {pos : Nat} {ds : List Nat} {rest : Li
         have : digitByte d ≠ 48 := fun e => hz ((digitByte_zero_iff ⟨d, hd10⟩).mp e)
         simpa using this
       simp only [hne48, Bool.false_eq_true, ↓reduceIte, digitByte_isDigit ⟨d, hd10⟩]
-      rw [scanDigits_ext bs rest hr (d :: t) pos bs.size 0 0 h10 h (by simpa using fuel_of_at h)]
-      simp [ofDigits]
+      rw [scanDigits_ext bs rest hr (d :: t) pos bs.size 0 h10 h (by simpa using fuel_of_at h)]
+      simp only [Nat.zero_add]
+      rw [digitsValue_ext _ (d :: t) pos h10 h (Nat.le_refl _)]
 
 /-- The bytes of an optional fraction. -/
 def fracBytes : Option (List Nat) → List UInt8
@@ -70,7 +72,7 @@ def fracBytes : Option (List Nat) → List UInt8
 /-- The bytes of an optional exponent. -/
 def expBytes : Option Int → List UInt8
   | none => []
-  | some i => 101 :: printInt i
+  | some i => 101 :: printExp i
 
 theorem printNat_eq (n : Nat) : printNat n = (natDigits n).map digitByte := rfl
 
@@ -122,6 +124,14 @@ theorem printInt_length (i : Int) :
     have : i.toNat = i.natAbs := by omega
     rw [this]
 
+theorem printExp_length (i : Int) : (printExp i).length = 1 + (natDigits i.natAbs).length := by
+  unfold printExp printNat
+  by_cases h : i < 0
+  · simp [h]; omega
+  · simp [h]
+    have : i.toNat = i.natAbs := by omega
+    rw [this]; omega
+
 theorem parseExp_some {bs : ByteArray} {pos : Nat} {i : Int} {rest : List UInt8}
     (h : At bs pos (expBytes (some i)) rest) (hr : DigitStop rest) :
     parseExp bs pos = .ok (true, i, pos + (expBytes (some i)).length) := by
@@ -130,34 +140,25 @@ theorem parseExp_some {bs : ByteArray} {pos : Nat} {i : Int} {rest : List UInt8}
   rw [At.get h]
   simp only [show ((101 : UInt8) == 101 || (101 : UInt8) == 69) = true by decide, ↓reduceIte]
   have h1 := At.next h
-  unfold printInt at h1
+  unfold printExp at h1
   by_cases hneg : i < 0
   · simp only [hneg, ↓reduceIte] at h1
     rw [At.get h1]
     simp only
     rw [digits1_ext (natDigits_digits1 _) (At.next h1) hr]
-    simp only [bind, Except.bind, expBytes, List.length_cons, printInt_length, hneg,
-      ↓reduceIte, ofDigits_natDigits]
+    simp only [bind, Except.bind, expBytes, List.length_cons, printExp_length, ofDigits_natDigits]
     rw [show -(i.natAbs : Int) = i by omega]
     congr 3; omega
   · simp only [hneg, ↓reduceIte] at h1
     have hnn : i.toNat = i.natAbs := by omega
     rw [hnn] at h1
-    obtain ⟨_, _, d, t, e, _, _⟩ := natDigits_spec i.natAbs
-    have hd10 : d < 10 := natDigits_lt10 (by rw [e]; simp)
-    have hfirst : bs[pos + 1]? = some (digitByte d) := by
-      rw [printNat_eq, e] at h1; exact At.get h1
-    rw [hfirst]
-    obtain ⟨_, _, _, h45, h43, _⟩ := digitByte_ne ⟨d, hd10⟩
-    split
-    · rename_i heq; simp at heq; exact absurd heq h45
-    · rename_i heq; simp at heq; exact absurd heq h43
-    · rw [printNat_eq] at h1
-      rw [digits1_ext (natDigits_digits1 _) h1 hr]
-      simp only [bind, Except.bind, expBytes, List.length_cons, printInt_length, hneg,
-        ↓reduceIte, ofDigits_natDigits]
-      rw [show (i.natAbs : Int) = i by omega]
-      congr 3; omega
+    rw [At.get h1]
+    simp only
+    rw [printNat_eq] at h1
+    rw [digits1_ext (natDigits_digits1 _) (At.next h1) hr]
+    simp only [bind, Except.bind, expBytes, List.length_cons, printExp_length, ofDigits_natDigits]
+    rw [show (i.natAbs : Int) = i by omega]
+    congr 3; omega
 
 theorem digitStop_frac_exp (fp : Option (List Nat)) (ex : Option Int) (rest : List UInt8)
     (hr : NumStop rest) : DigitStop (fracBytes fp ++ expBytes ex ++ rest) := by
@@ -184,12 +185,13 @@ theorem expBytes_head (ex : Option Int) (rest : List UInt8) (hr : NumStop rest) 
 
 /-- The shape every printed number has: optional `-`, integer digits,
 optional fraction, optional exponent. -/
-theorem parseNumber_shape {bs : ByteArray} {pos : Nat} (sneg : Bool) (ip : List Nat)
+theorem parseNumber_shape (cfg : ParseCfg) {bs : ByteArray} {pos : Nat} (sneg : Bool) (ip : List Nat)
     (fp : Option (List Nat)) (ex : Option Int) {rest : List UInt8}
     (hip : IntDigits ip) (hfp : ∀ fs, fp = some fs → Digits1 fs)
+    (hlen : cfg.intLenOk ((if sneg then 1 else 0) + ip.length) = true)
     (h : At bs pos ((if sneg then [45] else []) ++ ip.map digitByte ++ fracBytes fp ++ expBytes ex) rest)
     (hr : NumStop rest) :
-    parseNumber bs pos = .ok (mkNumber sneg (ofDigits ip) ((fp.map ofDigits).getD 0)
+    parseNumber cfg bs pos = .ok (mkNumber sneg (ofDigits ip) ((fp.map ofDigits).getD 0)
       ((fp.map List.length).getD 0) ex.isSome (ex.getD 0),
       pos + ((if sneg then [45] else []) ++ ip.map digitByte ++ fracBytes fp ++ expBytes ex).length) := by
   have hneg : (bs[pos]? == some 45) = sneg := by
@@ -222,6 +224,9 @@ theorem parseNumber_shape {bs : ByteArray} {pos : Nat} (sneg : Bool) (ip : List 
     cases sneg <;> simp
   rw [hp0, hI]
   simp only [bind, Except.bind]
+  rw [show pos + (if sneg then 1 else 0) + ip.length - pos = (if sneg then 1 else 0) + ip.length by omega,
+    hlen]
+  simp only [Bool.true_eq_false, ↓reduceIte]
   cases fp with
   | none =>
     simp only [fracBytes, List.nil_append] at h1
@@ -261,6 +266,7 @@ theorem zeros_eq (k : Nat) : zeros k = (List.replicate k 0).map digitByte := by
 structure LayoutShape (d : Decimal) (ip : List Nat) (fp : Option (List Nat)) (ex : Option Int) : Prop where
   hip : IntDigits ip
   hfp : ∀ fs, fp = some fs → Digits1 fs
+  len : ip.length = layoutIntLen (natDigits d.mant).length d.exp
   bytes : layoutDecimal (natDigits d.mant) d.exp = ip.map digitByte ++ fracBytes fp ++ expBytes ex
   value : mkNumber d.neg (ofDigits ip) ((fp.map ofDigits).getD 0) ((fp.map List.length).getD 0)
     ex.isSome (ex.getD 0) = .float d
@@ -307,14 +313,14 @@ theorem layout_C (hA : ¬(0 ≤ k ∧ (ds.length : Int) + k ≤ 16))
 theorem layout_D (hA : ¬(0 ≤ k ∧ (ds.length : Int) + k ≤ 16))
     (hB : ¬(0 < (ds.length : Int) + k ∧ (ds.length : Int) + k ≤ 16))
     (hC : ¬(-5 < (ds.length : Int) + k ∧ (ds.length : Int) + k ≤ 0)) (h : ds.length = 1) :
-    layoutDecimal ds k = ds.map digitByte ++ 101 :: printInt ((ds.length : Int) + k - 1) := by
+    layoutDecimal ds k = ds.map digitByte ++ 101 :: printExp ((ds.length : Int) + k - 1) := by
   unfold layoutDecimal; dsimp only; rw [ite_eq_right hA, ite_eq_right hB, ite_eq_right hC, ite_eq_left h]
 
 theorem layout_E (hA : ¬(0 ≤ k ∧ (ds.length : Int) + k ≤ 16))
     (hB : ¬(0 < (ds.length : Int) + k ∧ (ds.length : Int) + k ≤ 16))
     (hC : ¬(-5 < (ds.length : Int) + k ∧ (ds.length : Int) + k ≤ 0)) (h : ¬ ds.length = 1) :
     layoutDecimal ds k = (ds.take 1).map digitByte ++ 46 :: (ds.drop 1).map digitByte ++
-      101 :: printInt ((ds.length : Int) + k - 1) := by
+      101 :: printExp ((ds.length : Int) + k - 1) := by
   unfold layoutDecimal; dsimp only; rw [ite_eq_right hA, ite_eq_right hB, ite_eq_right hC, ite_eq_right h]
 
 end layout
@@ -328,7 +334,7 @@ theorem layoutShape (d : Decimal) : ∃ ip fp ex, LayoutShape d ip fp ex := by
     · rw [h0] at h2; simp at h2
   generalize hds : natDigits d.mant = ds at *
   by_cases hA : 0 ≤ d.exp ∧ (ds.length : Int) + d.exp ≤ 16
-  · refine ⟨ds ++ List.replicate d.exp.toNat 0, some [0], none, ⟨?_, ?_, ?_, ?_⟩⟩
+  · refine ⟨ds ++ List.replicate d.exp.toNat 0, some [0], none, ⟨?_, ?_, ?_, ?_, ?_⟩⟩
     · refine ⟨by simp [he], ?_, ?_⟩
       · intro x hx; simp only [List.mem_append, List.mem_replicate] at hx
         rcases hx with hx | ⟨_, hx⟩
@@ -340,6 +346,7 @@ theorem layoutShape (d : Decimal) : ∃ ip fp ex, LayoutShape d ip fp ex := by
         have : d.mant = 0 := by rw [← hval, he]; rfl
         rw [hm0 this]; simp
     · intro fs hfs; simp at hfs; subst hfs; exact ⟨by simp, by simp⟩
+    · rw [hds]; unfold layoutIntLen; rw [ite_eq_left hA]; simp; omega
     · rw [hds, layout_A _ _ hA]; simp [fracBytes, expBytes, zeros_eq, (by decide : digitByte 0 = 48)]
     · simp only [Option.map_some, Option.getD_some, Option.isSome_none, Option.getD_none]
       rw [mkNumber_float _ _ _ _ _ _ (by simp)]
@@ -352,7 +359,7 @@ theorem layoutShape (d : Decimal) : ∃ ip fp ex, LayoutShape d ip fp ex := by
     have hmne : d.mant ≠ 0 := fun h0 => by have := hm0 h0; omega
     have hkkL : ((ds.length : Int) + d.exp).toNat < ds.length := by omega
     refine ⟨ds.take ((ds.length : Int) + d.exp).toNat, some (ds.drop ((ds.length : Int) + d.exp).toNat),
-      none, ⟨?_, ?_, ?_, ?_⟩⟩
+      none, ⟨?_, ?_, ?_, ?_, ?_⟩⟩
     · refine ⟨List.ne_nil_of_length_pos (by simp; omega), digits_take h10 _, ?_⟩
       obtain ⟨j, hj⟩ : ∃ j, ((ds.length : Int) + d.exp).toNat = j + 1 :=
         ⟨_, (Nat.succ_pred_eq_of_pos (by omega)).symm⟩
@@ -360,6 +367,7 @@ theorem layoutShape (d : Decimal) : ∃ ip fp ex, LayoutShape d ip fp ex := by
       intro h0; exact absurd h0 (hh0 hmne)
     · intro fs hfs; simp only [Option.some.injEq] at hfs; subst hfs
       exact ⟨List.ne_nil_of_length_pos (by simp; omega), digits_drop h10 _⟩
+    · rw [hds]; unfold layoutIntLen; rw [ite_eq_right hA, ite_eq_left hB]; simp; omega
     · rw [hds, layout_B _ _ hA hB]; simp [fracBytes, expBytes]
     · simp only [Option.map_some, Option.getD_some, Option.isSome_none, Option.getD_none]
       rw [mkNumber_float _ _ _ _ _ _ (by simp; omega)]
@@ -369,13 +377,14 @@ theorem layoutShape (d : Decimal) : ∃ ip fp ex, LayoutShape d ip fp ex := by
       · simp; omega
   by_cases hC : -5 < (ds.length : Int) + d.exp ∧ (ds.length : Int) + d.exp ≤ 0
   · refine ⟨[0], some (List.replicate (-((ds.length : Int) + d.exp)).toNat 0 ++ ds), none,
-      ⟨⟨by simp, by simp, fun _ => rfl⟩, ?_, ?_, ?_⟩⟩
+      ⟨⟨by simp, by simp, fun _ => rfl⟩, ?_, ?_, ?_, ?_⟩⟩
     · intro fs hfs; simp at hfs; subst hfs
       refine ⟨by simp [he], ?_⟩
       intro x hx; simp only [List.mem_append, List.mem_replicate] at hx
       rcases hx with ⟨_, hx⟩ | hx
       · omega
       · exact h10 x hx
+    · rw [hds]; unfold layoutIntLen; rw [ite_eq_right hA, ite_eq_right hB]; rfl
     · rw [hds, layout_C _ _ hA hB hC]; simp [fracBytes, expBytes, zeros_eq, (by decide : digitByte 0 = 48)]
     · simp only [Option.map_some, Option.getD_some, Option.isSome_none, Option.getD_none]
       rw [mkNumber_float _ _ _ _ _ _ (by simp [he])]
@@ -384,8 +393,9 @@ theorem layoutShape (d : Decimal) : ∃ ip fp ex, LayoutShape d ip fp ex := by
       · rw [ofDigits_replicate_zero, hval]; simp [ofDigits]
       · simp; omega
   by_cases hD : ds.length = 1
-  · refine ⟨ds, none, some ((ds.length : Int) + d.exp - 1), ⟨?_, by simp, ?_, ?_⟩⟩
+  · refine ⟨ds, none, some ((ds.length : Int) + d.exp - 1), ⟨?_, by simp, ?_, ?_, ?_⟩⟩
     · rw [← hds]; exact natDigits_intDigits _
+    · rw [hds]; unfold layoutIntLen; rw [ite_eq_right hA, ite_eq_right hB]; exact hD
     · rw [hds, layout_D _ _ hA hB hC hD]; simp [fracBytes, expBytes]
     · simp only [Option.map_none, Option.getD_none, Option.isSome_some, Option.getD_some]
       rw [mkNumber_float _ _ _ _ _ _ (by simp)]
@@ -394,10 +404,11 @@ theorem layoutShape (d : Decimal) : ∃ ip fp ex, LayoutShape d ip fp ex := by
       · rw [hval]; simp
       · simp; omega
   · have hL2 : 2 ≤ ds.length := by omega
-    refine ⟨ds.take 1, some (ds.drop 1), some ((ds.length : Int) + d.exp - 1), ⟨?_, ?_, ?_, ?_⟩⟩
+    refine ⟨ds.take 1, some (ds.drop 1), some ((ds.length : Int) + d.exp - 1), ⟨?_, ?_, ?_, ?_, ?_⟩⟩
     · rw [he]; exact ⟨by simp, by simpa using h10 h (by rw [he]; simp), by simp⟩
     · intro fs hfs; simp only [Option.some.injEq] at hfs; subst hfs
       exact ⟨List.ne_nil_of_length_pos (by simp; omega), digits_drop h10 _⟩
+    · rw [hds]; unfold layoutIntLen; rw [ite_eq_right hA, ite_eq_right hB]; simp; omega
     · rw [hds, layout_E _ _ hA hB hC hD]; simp [fracBytes, expBytes]
     · simp only [Option.map_some, Option.getD_some, Option.isSome_some]
       rw [mkNumber_float _ _ _ _ _ _ (by simp)]
@@ -406,9 +417,10 @@ theorem layoutShape (d : Decimal) : ∃ ip fp ex, LayoutShape d ip fp ex := by
       · rw [← ofDigits_append, List.take_append_drop, hval]; simp
       · simp; omega
 
-theorem parseNumber_printNumber_ext (n : Number) {bs : ByteArray} {pos : Nat} {rest : List UInt8}
+theorem parseNumber_printNumber_ext (cfg : ParseCfg) (n : Number) {bs : ByteArray} {pos : Nat}
+    {rest : List UInt8} (hfit : cfg.intLenOk n.intLen = true)
     (h : At bs pos (printNumber n) rest) (hr : NumStop rest) :
-    parseNumber bs pos = .ok (n, pos + (printNumber n).length) := by
+    parseNumber cfg bs pos = .ok (n, pos + (printNumber n).length) := by
   cases n with
   | int i =>
     have hb : printNumber (.int i) =
@@ -418,8 +430,10 @@ theorem parseNumber_printNumber_ext (n : Number) {bs : ByteArray} {pos : Nat} {r
       by_cases hi : i < 0
       · simp [hi]
       · simp [hi]; rw [show i.toNat = i.natAbs by omega]
+    have hl : (if decide (i < 0) = true then 1 else 0) + (natDigits i.natAbs).length = (Number.int i).intLen := by
+      simp only [Number.intLen, printInt_length, decide_eq_true_eq]
     rw [hb] at h ⊢
-    rw [parseNumber_shape _ _ none none (natDigits_intDigits _) (by simp) h hr]
+    rw [parseNumber_shape cfg _ _ none none (natDigits_intDigits _) (by simp) (by rw [hl]; exact hfit) h hr]
     simp only [mkNumber, Option.map_none, Option.getD_none, Option.isSome_none, and_self,
       ↓reduceIte, ofDigits_natDigits]
     congr 3
@@ -429,7 +443,9 @@ theorem parseNumber_printNumber_ext (n : Number) {bs : ByteArray} {pos : Nat} {r
     have hb : printNumber (.float d) =
         (if d.neg then [45] else []) ++ ip.map digitByte ++ fracBytes fp ++ expBytes ex := by
       simp only [printNumber, printDecimal, S.bytes, List.append_assoc]
+    have hl : (if d.neg = true then 1 else 0) + ip.length = (Number.float d).intLen := by
+      simp only [Number.intLen, S.len]
     rw [hb] at h ⊢
-    rw [parseNumber_shape _ _ _ _ S.hip S.hfp h hr, S.value]
+    rw [parseNumber_shape cfg _ _ _ _ S.hip S.hfp (by rw [hl]; exact hfit) h hr, S.value]
 
 end LeanJson

@@ -104,7 +104,8 @@ an IEEE parse of the literal would). -/
 def toFloat : Number → Float
   | .int i => Float.ofInt i
   | .float d =>
-    let L : Int := (natDigits d.mant).length
+    -- a lower bound on the digit count, from the bit length (log10 2 > 0.30103)
+    let L : Int := (d.mant.log2 * 30103 / 100000 : Nat)
     let mag : Float :=
       if d.mant = 0 then 0.0
       else if d.exp + L > 400 then 1.0 / 0.0
@@ -174,14 +175,18 @@ end Number
 mutual
 /-- Into core `Lean.Json`. Objects become a sorted map, so key order is lost
 and the last of duplicate keys wins; floats become `JsonNumber`s exactly
-(a float with an integral value becomes indistinguishable from an int). -/
+(a float with an integral value becomes indistinguishable from an int).
+`JsonNumber` has a `Nat` exponent, so a float above `1e4300` would need its
+digits written out; it becomes `null` instead (upstream: `inf`, which
+`Lean.Json` cannot hold either). -/
 def Json.toLean : Json → Lean.Json
   | .null => .null
   | .bool b => .bool b
   | .num (.int i) => .num ⟨i, 0⟩
   | .num (.float d) =>
     let m : Int := if d.neg then -(d.mant : Int) else d.mant
-    if d.exp ≥ 0 then .num ⟨m * (10 ^ d.exp.toNat : Nat), 0⟩ else .num ⟨m, d.exp.natAbs⟩
+    if d.exp > 4300 then .null
+    else if d.exp ≥ 0 then .num ⟨m * (10 ^ d.exp.toNat : Nat), 0⟩ else .num ⟨m, d.exp.natAbs⟩
   | .str s => .str s
   | .arr xs => .arr (Json.toLeanList xs).toArray
   | .obj kvs => Lean.Json.mkObj (Json.toLeanFields kvs)

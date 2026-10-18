@@ -25,6 +25,22 @@ next byte is `,` `]` `}` or whitespace, which qualify.) -/
 def NumStop (rest : List UInt8) : Prop :=
   ∀ b, rest.head? = some b → isDigit b = false ∧ b ≠ 46 ∧ b ≠ 101 ∧ b ≠ 69
 
+mutual
+/-- Every number in `v` is within `cfg`'s limits (always true for
+`ParseCfg.lossless`). -/
+def Fits (cfg : ParseCfg) : Json → Prop
+  | .num n => cfg.intLenOk n.intLen = true
+  | .arr xs => FitsList cfg xs
+  | .obj kvs => FitsFields cfg kvs
+  | _ => True
+def FitsList (cfg : ParseCfg) : List Json → Prop
+  | [] => True
+  | x :: xs => Fits cfg x ∧ FitsList cfg xs
+def FitsFields (cfg : ParseCfg) : List (String × Json) → Prop
+  | [] => True
+  | (_, v) :: kvs => Fits cfg v ∧ FitsFields cfg kvs
+end
+
 /-- The signature of a value parser: buffer, cursor, fuel. -/
 abbrev ValueParser := ByteArray → Nat → Nat → Except ParseErr (Json × Nat)
 
@@ -109,7 +125,7 @@ structure Parsed (bs : ByteArray) (v : Json) : Prop where
 result `r = (value, end position)`. -/
 structure ParsedAt (bs : ByteArray) (pos : Nat) (r : Json × Nat) : Prop where
   /-- `r` is the reference parser's answer at the API's fuel budget. -/
-  ref : parseValue bs pos (2 * (bs.size - pos) + 1) = .ok r
+  ref : parseValue bs pos (fuelFor bs pos) = .ok r
 
 /-- What `LeanJson.print` guarantees about its output `b` for `v` under `o`. -/
 structure Printed (o : PrintOpts) (v : Json) (b : ByteArray) : Prop where

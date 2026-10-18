@@ -37,7 +37,7 @@ def parseStr (s : String) : Except JsonError {v : Json // Spec.Parsed s.toUTF8 v
 returning it with the position just past it; trailing bytes are left alone.
 For streaming and embedded use. -/
 def parseAt (bs : ByteArray) (pos : Nat) : Except JsonError {r : Json × Nat // Spec.ParsedAt bs pos r} :=
-  match h : parseValue bs pos (2 * (bs.size - pos) + 1) with
+  match h : parseValue bs pos (fuelFor bs pos) with
   | .ok r => .ok ⟨r, ⟨h⟩⟩
   | .error e => .error (e.toJsonError bs)
 
