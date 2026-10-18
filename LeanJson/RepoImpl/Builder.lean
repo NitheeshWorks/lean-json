@@ -24,7 +24,7 @@ def printTo (o : PrintOpts) (d : Nat) (acc : ByteArray) : Json → ByteArray
   | .null => pushList acc litNull
   | .bool true => pushList acc litTrue
   | .bool false => pushList acc litFalse
-  | .num n => pushList acc (printNumber n)
+  | .num n => pushList acc (printNumberIn o n)
   | .str s => pushString o.ensureAscii acc s
   | .arr [] => (acc.push 91).push 93
   | .arr (x :: xs) =>

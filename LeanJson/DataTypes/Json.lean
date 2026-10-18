@@ -32,11 +32,26 @@ instance : Repr Decimal where
 
 /-- A JSON number as pydantic-core's parser classifies it: a literal with no
 fraction and no exponent is an integer (any size: Python `int`, jiter
-`Int`/`BigInt`); anything else is a float, held as an exact `Decimal`. -/
+`Int`/`BigInt`); anything else is a float, held as an exact `Decimal`. The
+three non-finite floats are not JSON (RFC 8259); they arise only from the
+lenient parser (`ParseCfg.allowInfNan`, pydantic-core's `allow_inf_nan`, the
+`from_json` default) and from `Float` values, and print as `to_json`'s
+`inf_nan_mode` says. -/
 inductive Number where
   | int (i : Int)
   | float (d : Decimal)
+  /-- `NaN` -/
+  | nan
+  /-- `Infinity` -/
+  | inf
+  /-- `-Infinity` -/
+  | negInf
   deriving DecidableEq, Repr
+
+/-- Finite: an integer or a decimal. -/
+def Number.isFinite : Number → Bool
+  | .int _ | .float _ => true
+  | _ => false
 
 /-- A JSON value (RFC 8259). Arrays are lists; objects are association lists
 in document order, duplicates kept, exactly as jiter's `JsonValue` keeps
@@ -182,6 +197,16 @@ def JsonError.description (e : JsonError) : String :=
 
 instance : ToString JsonError := ⟨JsonError.description⟩
 
+/-- How a non-finite number prints, as pydantic-core's `inf_nan_mode` /
+`ser_json_inf_nan`: `constants` writes `NaN`, `Infinity`, `-Infinity`
+(`to_json`'s default; not valid RFC 8259 JSON), `null` writes `null`,
+`strings` writes `"NaN"`, `"Infinity"`, `"-Infinity"`. -/
+inductive InfNanMode where
+  | null
+  | constants
+  | strings
+  deriving DecidableEq, Repr, Inhabited
+
 /-- Printer options, mirroring pydantic-core's `to_json(indent=, ensure_ascii=)`.
 `indent = none` is the compact form (`,` and `:` with no spaces, as
 Starlette's `JSONResponse` emits); `indent = some k` is serde_json's pretty
@@ -190,6 +215,8 @@ character as `\uXXXX` (astral characters as a surrogate pair). -/
 structure PrintOpts where
   indent : Option Nat := none
   ensureAscii : Bool := false
+  /-- How NaN and the infinities print (pydantic-core's `inf_nan_mode`). -/
+  infNan : InfNanMode := .constants
   deriving DecidableEq, Repr, Inhabited
 
 end LeanJson

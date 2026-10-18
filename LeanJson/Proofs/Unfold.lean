@@ -97,6 +97,10 @@ theorem parseValueAtD_eq (cfg : ParseCfg) (bs : ByteArray) (depth pos : Nat) :
           (expectLit bs (skipWs bs pos + 1) [97, 108, 115, 101]).map (fun p => (.bool false, p))
         else if b == 110 then (expectLit bs (skipWs bs pos + 1) [117, 108, 108]).map (fun p => (.null, p))
         else if b == 45 || isDigit b then (parseNumber cfg bs (skipWs bs pos)).map (fun x => (.num x.1, x.2))
+        else if b == 78 && cfg.allowInfNan then
+          (expectLit bs (skipWs bs pos + 1) [97, 78]).map (fun p => (.num .nan, p))
+        else if b == 73 && cfg.allowInfNan then
+          (expectLit bs (skipWs bs pos + 1) [110, 102, 105, 110, 105, 116, 121]).map (fun p => (.num .inf, p))
         else .error ⟨.expectedSomeValue, skipWs bs pos⟩ := by
   unfold parseValueAtD
   rw [parseValueWith]

@@ -101,6 +101,10 @@ def parseValueWith (cfg : ParseCfg) (bs : ByteArray) (depth pos : Nat) :
       (Step.lift _ (litStep (lit := [117, 108, 108]) .null hqs)).map (·.cast id hq)
     else if b == 45 || isDigit b then
       (Step.lift _ (numStep (cfg := cfg))).map (·.cast id hq)
+    else if b == 78 && cfg.allowInfNan then
+      (Step.lift _ (litStep (lit := [97, 78]) (.num .nan) hqs)).map (·.cast id hq)
+    else if b == 73 && cfg.allowInfNan then
+      (Step.lift _ (litStep (lit := [110, 102, 105, 110, 105, 116, 121]) (.num .inf) hqs)).map (·.cast id hq)
     else .error ⟨.expectedSomeValue, q⟩
   else .error ⟨.eofWhileParsingValue, q⟩
 termination_by (bs.size - pos, 0)

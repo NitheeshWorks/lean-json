@@ -44,6 +44,18 @@ def err (upstream name input want : String) : Case :=
 def toJsonStr {α : Type} [IntoJson α] (v : α) (indent : Option Nat := none) (ascii := false) : String :=
   (String.fromUTF8? (to_json v indent ascii).val).getD "<invalid utf-8>"
 
+def toJsonStrM {α : Type} [IntoJson α] (v : α) (m : InfNanMode) : String :=
+  (String.fromUTF8? (to_json v (inf_nan_mode := m)).val).getD "<invalid utf-8>"
+
+/-- `from_json(s, allow_inf_nan=False)`. -/
+def outcomeStrict (s : String) : String :=
+  match from_json s (allow_inf_nan := false) with
+  | .ok v => printStr v.val
+  | .error e => "ERR " ++ e.description
+
+def strictErr (name input want : String) : Case :=
+  ⟨"from_json (2.50.1), allow_inf_nan=False", name, expect (outcomeStrict input) ("ERR " ++ want)⟩
+
 def rep (c : Char) (n : Nat) : String := String.ofList (List.replicate n c)
 
 def probe := "from_json (2.50.1)"
@@ -82,8 +94,11 @@ def cases : List Case := [
   ⟨"tests/test_json.py::test_to_jsonable_python_schema_serializer", "nested objects, compact",
     expect (toJsonStr (json% {"myFoo": 1, "myInners": [{"myFoo": 2, "myInners": []}]}))
       "{\"myFoo\":1,\"myInners\":[{\"myFoo\":2,\"myInners\":[]}]}"⟩,
-  err "tests/test_json.py::test_inf_nan_allow" "Infinity is rejected (deviation)" "Infinity"
-    "expected value at line 1 column 1",
+  ok "tests/test_json.py::test_inf_nan_allow" "Infinity" "Infinity" "Infinity",
+  ok "tests/test_json.py::test_inf_nan_allow" "-Infinity" "-Infinity" "-Infinity",
+  ok "tests/test_json.py::test_inf_nan_allow" "NaN" "NaN" "NaN",
+  ok "tests/validators/test_float.py::test_allow_inf_nan_true_json" "non-finite inside containers"
+    "[NaN, Infinity, -Infinity, {\"a\": NaN}]" "[NaN,Infinity,-Infinity,{\"a\":NaN}]",
   -- tests/validators/test_json.py, tests/validators/test_int.py
   ok "tests/validators/test_json.py::test_any" "object" "{\"a\": 1}" "{\"a\":1}",
   ok "tests/validators/test_json.py::test_any" "string" "\"a\"" "\"a\"",
@@ -102,8 +117,28 @@ def cases : List Case := [
     expect (toJsonStr (42.31415 : Float)) "42.31415"⟩,
   ⟨"tests/serializers/test_simple.py::test_simple_serializers", "float 42.0 (subclass)",
     expect (toJsonStr (42 : Float)) "42.0"⟩,
-  ⟨"tests/serializers/test_simple.py::test_numpy_float", "inf serialises as null",
-    expect (toJsonStr (1.0 / 0.0 : Float)) "null"⟩,
+  ⟨"tests/serializers/test_simple.py::test_float_inf_and_nan_serializers", "inf, null mode",
+    expect (toJsonStrM (1.0 / 0.0 : Float) .null) "null"⟩,
+  ⟨"tests/serializers/test_simple.py::test_float_inf_and_nan_serializers", "-inf, null mode",
+    expect (toJsonStrM (-1.0 / 0.0 : Float) .null) "null"⟩,
+  ⟨"tests/serializers/test_simple.py::test_float_inf_and_nan_serializers", "nan, null mode",
+    expect (toJsonStrM (0.0 / 0.0 : Float) .null) "null"⟩,
+  ⟨"tests/serializers/test_simple.py::test_float_inf_and_nan_serializers", "inf, constants",
+    expect (toJsonStrM (1.0 / 0.0 : Float) .constants) "Infinity"⟩,
+  ⟨"tests/serializers/test_simple.py::test_float_inf_and_nan_serializers", "-inf, constants",
+    expect (toJsonStrM (-1.0 / 0.0 : Float) .constants) "-Infinity"⟩,
+  ⟨"tests/serializers/test_simple.py::test_float_inf_and_nan_serializers", "nan, constants",
+    expect (toJsonStrM (0.0 / 0.0 : Float) .constants) "NaN"⟩,
+  ⟨"tests/serializers/test_simple.py::test_float_inf_and_nan_serializers", "inf, strings",
+    expect (toJsonStrM (1.0 / 0.0 : Float) .strings) "\"Infinity\""⟩,
+  ⟨"tests/serializers/test_simple.py::test_float_inf_and_nan_serializers", "-inf, strings",
+    expect (toJsonStrM (-1.0 / 0.0 : Float) .strings) "\"-Infinity\""⟩,
+  ⟨"tests/serializers/test_simple.py::test_float_inf_and_nan_serializers", "nan, strings",
+    expect (toJsonStrM (0.0 / 0.0 : Float) .strings) "\"NaN\""⟩,
+  ⟨probe, "to_json default writes constants, in containers",
+    expect (toJsonStr (json% [(0.0 / 0.0 : Float), {"a": (1.0 / 0.0 : Float)}])) "[NaN,{\"a\":Infinity}]"⟩,
+  ⟨probe, "to_json indent with Infinity",
+    expect (toJsonStr (json% [(1.0 / 0.0 : Float)]) (some 2)) "[\n  Infinity\n]"⟩,
   ⟨"tests/serializers/test_json.py::test_list_json", "['a', [1, 2], None]",
     expect (toJsonStr (json% ["a", [1, 2], null])) "[\"a\",[1,2],null]"⟩,
   ⟨"tests/serializers/test_json.py::test_custom_serializer", "{1: 2} with string key",
@@ -158,6 +193,32 @@ def cases : List Case := [
   err probe "trailing characters" "1 2" "trailing characters at line 1 column 3",
   err probe "trailing characters after object" "{\"a\":1}x" "trailing characters at line 1 column 8",
   err probe "empty input" "" "EOF while parsing a value at line 1 column 0",
+  -- NaN / Infinity: lenient (the default) and strict
+  err probe "lowercase nan" "nan" "expected ident at line 1 column 2",
+  err probe "inf is not a literal" "inf" "expected value at line 1 column 1",
+  err probe "-inf" "-inf" "invalid number at line 1 column 2",
+  err probe "NAN" "NAN" "expected ident at line 1 column 2",
+  err probe "truncated Infinity" "Inf" "EOF while parsing a value at line 1 column 3",
+  err probe "-NaN" "-NaN" "invalid number at line 1 column 2",
+  err probe "+Infinity" "+Infinity" "expected value at line 1 column 1",
+  err probe "Infinityx" "Infinityx" "trailing characters at line 1 column 9",
+  err probe "[Infinity1]" "[Infinity1]" "expected `,` or `]` at line 1 column 10",
+  err probe "[NaN1]" "[NaN1]" "expected `,` or `]` at line 1 column 5",
+  err probe "-I" "-I" "EOF while parsing a value at line 1 column 2",
+  err probe "N" "N" "EOF while parsing a value at line 1 column 1",
+  err probe "-Infinity5" "-Infinity5" "trailing characters at line 1 column 10",
+  ok probe "spaced NaN" " NaN " "NaN",
+  strictErr "NaN" "NaN" "expected value at line 1 column 1",
+  strictErr "Infinity" "Infinity" "expected value at line 1 column 1",
+  strictErr "-Infinity" "-Infinity" "invalid number at line 1 column 2",
+  strictErr "in a list" "[NaN, Infinity, -Infinity]" "expected value at line 1 column 2",
+  strictErr "NAN" "NAN" "expected value at line 1 column 1",
+  strictErr "Inf" "Inf" "expected value at line 1 column 1",
+  strictErr "-I" "-I" "invalid number at line 1 column 2",
+  strictErr "in an object" "{\"a\": NaN}" "expected value at line 1 column 7",
+  strictErr "spaced" " NaN " "expected value at line 1 column 2",
+  ⟨"from_json (2.50.1), allow_inf_nan=False", "finite numbers unchanged",
+    expect (outcomeStrict "[1, 2.5, -0.0]") "[1,2.5,-0.0]"⟩,
   -- jiter's nesting limit: a value may sit inside at most 200 containers
   ok probe "201 nested empty arrays" (rep '[' 201 ++ rep ']' 201) (rep '[' 201 ++ rep ']' 201),
   err probe "202 nested arrays" (rep '[' 202 ++ rep ']' 202) "recursion limit exceeded at line 1 column 202",

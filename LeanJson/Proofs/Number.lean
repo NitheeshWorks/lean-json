@@ -183,6 +183,8 @@ theorem expBytes_head (ex : Option Int) (rest : List UInt8) (hr : NumStop rest) 
     simp only [expBytes, List.nil_append]
     intro h; exact (hr 46 h).2.1 rfl
 
+theorem digitByte_ne_73 : ∀ d : Fin 10, digitByte d.val ≠ 73 := by decide
+
 /-- The shape every printed number has: optional `-`, integer digits,
 optional fraction, optional exponent. -/
 theorem parseNumber_shape (cfg : ParseCfg) {bs : ByteArray} {pos : Nat} (sneg : Bool) (ip : List Nat)
@@ -218,11 +220,25 @@ theorem parseNumber_shape (cfg : ParseCfg) {bs : ByteArray} {pos : Nat} (sneg : 
   have hI := parseIntPart_ext hip h0 (digitStop_frac_exp fp ex rest hr)
   have h1 : At bs (pos + (if sneg then 1 else 0) + ip.length) (fracBytes fp ++ expBytes ex) rest := by
     simpa using h0.app'.app
-  unfold parseNumber
-  simp only [hneg]
-  have hp0 : (if sneg = true then pos + 1 else pos) = pos + (if sneg then 1 else 0) := by
-    cases sneg <;> simp
-  rw [hp0, hI]
+  have hbody : parseNumber cfg bs pos = parseNumberBody cfg bs pos sneg (pos + (if sneg then 1 else 0)) := by
+    unfold parseNumber
+    simp only [hneg]
+    cases sneg
+    · simp
+    · obtain ⟨d, t, e⟩ : ∃ d t, ip = d :: t := by
+        cases ip with
+        | nil => exact absurd rfl hip.1
+        | cons d t => exact ⟨d, t, rfl⟩
+      have hd10 : d < 10 := hip.2.1 d (by simp [e])
+      rw [e] at h0
+      have hg : bs[pos + 1]? = some (digitByte d) := by simpa using h0.get
+      have h73 : (bs[pos + 1]? == some 73) = false := by
+        rw [hg]
+        simpa using digitByte_ne_73 ⟨d, hd10⟩
+      simp [h73]
+  rw [hbody]
+  unfold parseNumberBody
+  rw [hI]
   simp only [bind, Except.bind]
   rw [show pos + (if sneg then 1 else 0) + ip.length - pos = (if sneg then 1 else 0) + ip.length by omega,
     hlen]
@@ -417,11 +433,34 @@ theorem layoutShape (d : Decimal) : ∃ ip fp ex, LayoutShape d ip fp ex := by
       · rw [← ofDigits_append, List.take_append_drop, hval]; simp
       · simp; omega
 
+theorem expectLit_ext {bs : ByteArray} :
+    ∀ (lit : List UInt8) (p : Nat) {R : List UInt8}, At bs p lit R → expectLit bs p lit = .ok (p + lit.length)
+  | [], p, R, _ => by simp [expectLit]
+  | c :: cs, p, R, h => by
+    simp only [expectLit, h.get, beq_self_eq_true, ↓reduceIte]
+    rw [expectLit_ext cs (p + 1) h.next]
+    simp; omega
+
+/-- **Number round trip on any continuation**: integers and decimals under
+every configuration within its integer limit, and `-Infinity` when NaN and
+the infinities are allowed (`NaN` and `Infinity` are read at the value level,
+by `parseValue`, since they do not start like a number). -/
 theorem parseNumber_printNumber_ext (cfg : ParseCfg) (n : Number) {bs : ByteArray} {pos : Nat}
     {rest : List UInt8} (hfit : cfg.intLenOk n.intLen = true)
+    (hfin : n.isFinite = true ∨ (n = .negInf ∧ cfg.allowInfNan = true))
     (h : At bs pos (printNumber n) rest) (hr : NumStop rest) :
     parseNumber cfg bs pos = .ok (n, pos + (printNumber n).length) := by
   cases n with
+  | nan => simp [Number.isFinite] at hfin
+  | inf => simp [Number.isFinite] at hfin
+  | negInf =>
+    have hallow : cfg.allowInfNan = true := by simpa [Number.isFinite] using hfin
+    simp only [printNumber, litInfinity] at h ⊢
+    unfold parseNumber
+    rw [h.get, h.next.get]
+    simp only [beq_self_eq_true, ↓reduceIte, hallow, Bool.and_self]
+    rw [expectLit_ext _ _ (by simpa using h.next.next)]
+    rfl
   | int i =>
     have hb : printNumber (.int i) =
         (if decide (i < 0) then [45] else []) ++ (natDigits i.natAbs).map digitByte ++

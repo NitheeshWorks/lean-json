@@ -145,8 +145,18 @@ gives Python `dict` semantics (first position, last value).
 * **Error offsets** follow jiter, including its surrogate-escape and UTF-8
   cases; a lone trailing surrogate is reported as `lone leading surrogate`
   as upstream does (UP-026, pydantic/jiter#120).
-* **NaN / Infinity** are not representable and are rejected by the parser.
-  Deviation: `from_json` accepts them by default (`allow_inf_nan=True`).
+* **NaN / Infinity.** `Number` has `nan`, `inf`, `negInf`. The default parser
+  (`ParseCfg.allowInfNan = true`, `from_json`'s `allow_inf_nan=True`) reads
+  `NaN`, `Infinity`, `-Infinity` exactly where jiter does, with jiter's errors
+  for near misses (`nan` is `expected ident`, `-NaN` is `invalid number`);
+  `ParseCfg.strict` rejects them as before. `to_json` prints them per
+  `inf_nan_mode` (`constants` by default, as pydantic-core's `to_json`;
+  `null`; `strings`). The round trip needs the mode to read back
+  (`Spec.ReadsBack`: `constants`, or no non-finite number), and the strict one
+  needs a finite value; `print_injective` holds in `constants` mode only,
+  since `null` mode prints `NaN` and `null` alike. Starlette's `JSONResponse`
+  (`allow_nan=False`) is strict: lean-starlette checks `Json.allFinite` and
+  raises, rather than printing.
 * **Nesting limit, as jiter.** A value inside 201 containers is `recursion
   limit exceeded` at the value's offset (so 201 nested empty containers
   parse, and `[` × 202 fails at column 202). `ParseCfg.maxDepth` (default

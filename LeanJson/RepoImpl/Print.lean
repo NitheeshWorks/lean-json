@@ -56,15 +56,32 @@ def layoutIntLen (L : Nat) (k : Int) : Nat :=
 def printDecimal (d : Decimal) : List UInt8 :=
   (if d.neg then [45] else []) ++ layoutDecimal (natDigits d.mant) d.exp
 
+/-- `NaN` and `Infinity` as bytes. -/
+def litNaN : List UInt8 := [78, 97, 78]
+def litInfinity : List UInt8 := [73, 110, 102, 105, 110, 105, 116, 121]
+
+/-- A number; the non-finite ones as pydantic-core's `constants` mode writes
+them. -/
 def printNumber : Number → List UInt8
   | .int i => printInt i
   | .float d => printDecimal d
+  | .nan => litNaN
+  | .inf => litInfinity
+  | .negInf => 45 :: litInfinity
+
+/-- The name `strings` mode writes for a non-finite number. -/
+def Number.constName : Number → String
+  | .nan => "NaN"
+  | .inf => "Infinity"
+  | .negInf => "-Infinity"
+  | _ => ""
 
 /-- The bytes of the sign and integer part of `printNumber n`: what jiter's
 4300 limit (`ParseCfg.maxIntLen`) counts. -/
 def Number.intLen : Number → Nat
   | .int i => (printInt i).length
   | .float d => (if d.neg then 1 else 0) + layoutIntLen (natDigits d.mant).length d.exp
+  | _ => 0
 
 /-- `\uXXXX` for `n < 65536`, lowercase hex. -/
 def hex4 (n : Nat) : List UInt8 :=
@@ -90,6 +107,15 @@ def escapeChar (ascii : Bool) (c : Char) : List UInt8 :=
 def printString (ascii : Bool) (s : String) : List UInt8 :=
   34 :: s.toList.flatMap (escapeChar ascii) ++ [34]
 
+/-- A number under the options: finite numbers always as `printNumber`;
+NaN and the infinities by `o.infNan`. -/
+def printNumberIn (o : PrintOpts) (n : Number) : List UInt8 :=
+  if n.isFinite then printNumber n
+  else match o.infNan with
+    | .constants => printNumber n
+    | .null => litNull
+    | .strings => printString o.ensureAscii n.constName
+
 /-- The line break and indentation before an item at depth `d` (pretty
 form), or nothing (compact form). -/
 def PrintOpts.nl (o : PrintOpts) (d : Nat) : List UInt8 :=
@@ -109,7 +135,7 @@ def printWith (o : PrintOpts) (d : Nat) : Json → List UInt8
   | .null => litNull
   | .bool true => litTrue
   | .bool false => litFalse
-  | .num n => printNumber n
+  | .num n => printNumberIn o n
   | .str s => printString o.ensureAscii s
   | .arr [] => [91, 93]
   | .arr (x :: xs) =>

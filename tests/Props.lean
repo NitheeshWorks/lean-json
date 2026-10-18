@@ -61,8 +61,11 @@ def genString (r : Rng) : String × Rng := Id.run do
   (String.ofList cs, g)
 
 def genNumber (r : Rng) : Number × Rng :=
-  let (k, r) := r.nat 4
+  let (k, r) := r.nat 7
   match k with
+  | 4 => (.nan, r)
+  | 5 => (.inf, r)
+  | 6 => (.negInf, r)
   | 0 => let (n, r) := r.nat 1000; (.int ((n : Int) - 500), r)
   | 1 =>
     let (n, r) := r.next
@@ -116,7 +119,22 @@ def finiteFloat (r : Rng) : Float × Rng :=
   let x := Float.ofBits bits
   if x.isNaN || x.isInf then (1.5, r) else (x, r)
 
+def checkModes (r : Rng) : Option String × Rng :=
+  let (v, r) := genJson 4 r
+  let (m, r) := r.pick [InfNanMode.null, .strings]
+  let b := (print v { infNan := m }).val
+  match parseWith .strict b with
+  | .ok w =>
+    (if v.allFinite && !(w.val == v) then some s!"{v} reparsed as {w.val}" else none, r)
+  | .error e => (some s!"{v}: {e.description}", r)
+
 def properties : List Property := [
+  ⟨"null and strings modes print strict RFC 8259 JSON (and round-trip finite values)", checkModes⟩,
+  ⟨"strict parse of constants output: accepted iff the value is finite", fun r =>
+    let (v, r) := genJson 4 r
+    match parseWith .strict (print v).val with
+    | .ok w => (if v.allFinite && w.val == v then none else some s!"{v}", r)
+    | .error _ => (if v.allFinite then some s!"{v} rejected" else none, r)⟩,
   ⟨"parse (print v) = v, compact", checkRoundTrip {}⟩,
   ⟨"parse (print v) = v, indent 2", checkRoundTrip { indent := some 2 }⟩,
   ⟨"parse (print v) = v, ensure_ascii", checkRoundTrip { ensureAscii := true }⟩,
@@ -135,6 +153,11 @@ def properties : List Property := [
     match parseAt buf 0 with
     | .ok x => (if x.val == (a, pa.size) then none else some s!"{a} then {b}", r)
     | .error e => (some e.description, r)⟩,
+  ⟨"Float -> Number -> Float: identity on bits, NaN to NaN", fun r =>
+    let (bits, r) := r.next
+    let x := Float.ofBits bits
+    let y := (Number.ofFloat x).toFloat
+    (if (x.isNaN && y.isNaN) || x.toBits == y.toBits then none else some s!"{x} -> {y}", r)⟩,
   ⟨"Float -> shortest decimal -> Float is the identity on bits", fun r =>
     let (x, r) := finiteFloat r
     match Number.ofFloat? x with

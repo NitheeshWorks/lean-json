@@ -31,7 +31,8 @@ number's integer part fits `maxIntLen`, and every value (scalar or
 container) sits inside fewer than `maxDepth` containers. Always true for
 `ParseCfg.lossless`. -/
 def FitsAt (cfg : ParseCfg) (d : Nat) : Json → Prop
-  | .num n => cfg.depthOk d = true ∧ cfg.intLenOk n.intLen = true
+  | .num n => cfg.depthOk d = true ∧ cfg.intLenOk n.intLen = true ∧
+      (cfg.allowInfNan = true ∨ n.isFinite = true)
   | .arr xs => cfg.depthOk d = true ∧ FitsList cfg (d + 1) xs
   | .obj kvs => cfg.depthOk d = true ∧ FitsFields cfg (d + 1) kvs
   | _ => cfg.depthOk d = true
@@ -49,6 +50,12 @@ def Fits (cfg : ParseCfg) (v : Json) : Prop := FitsAt cfg 0 v
 /-- Every integer in `j` is within jiter's 4300-byte limit (depth aside). -/
 def IntsFit (j : Json) : Prop := Fits { maxDepth := none } j
 
+/-- The printing of `v` under `o` can be read back as `v`: either NaN and the
+infinities print as constants (`o.infNan = .constants`, the default), or `v`
+has none. Under `null` or `strings` mode a non-finite number prints as
+`null` or a string, which reads back as that instead. -/
+def ReadsBack (o : PrintOpts) (v : Json) : Prop := o.infNan = .constants ∨ v.allFinite = true
+
 /-- The signature of a value parser: buffer and cursor in; value and end
 position out. -/
 abbrev ValueParser := ByteArray → Nat → Except ParseErr (Json × Nat)
@@ -61,7 +68,7 @@ printed form of `v`, followed by anything that cannot extend a number,
 parses back to `v` with the cursor just past it. -/
 def ParsePrintExt (parse : ValueParser) (print : Printer) : Prop :=
   ∀ (o : PrintOpts) (d : Nat) (v : Json) (bs : ByteArray) (pos : Nat) (rest : List UInt8),
-    At bs pos (print o d v) rest → NumStop rest →
+    ReadsBack o v → At bs pos (print o d v) rest → NumStop rest →
     parse bs pos = .ok (v, pos + (print o d v).length)
 
 /-- String literals round-trip on any continuation, in both escape modes
@@ -75,12 +82,12 @@ def StringExt (parse : ByteArray → Nat → Except ParseErr (String × Nat))
 of any size, and floats (mantissa and exponent, sign of zero included). -/
 def NumberExt (parse : ByteArray → Nat → Except ParseErr (Number × Nat))
     (print : Number → List UInt8) : Prop :=
-  ∀ (n : Number) (bs : ByteArray) (pos : Nat) (rest : List UInt8),
+  ∀ (n : Number) (bs : ByteArray) (pos : Nat) (rest : List UInt8), n ≠ .nan → n ≠ .inf →
     At bs pos (print n) rest → NumStop rest → parse bs pos = .ok (n, pos + (print n).length)
 
 /-- The printer is injective, for every choice of options. -/
 def PrintInjective (print : Printer) : Prop :=
-  ∀ (o : PrintOpts) (v w : Json), print o 0 v = print o 0 w → v = w
+  ∀ (o : PrintOpts) (v w : Json), o.infNan = .constants → print o 0 v = print o 0 w → v = w
 
 /-- Every successful parse consumes at least one byte and stays in bounds. -/
 def StepProgress (parse : ValueParser) : Prop :=
@@ -110,18 +117,25 @@ def Compact (print : Json → List UInt8) : Prop :=
   ∀ v : Json, (9 : UInt8) ∉ print v ∧ (10 : UInt8) ∉ print v ∧ (13 : UInt8) ∉ print v ∧
     ((32 : UInt8) ∈ print v → HasSpaceInString v)
 
-/-- What a successful document parse of `bs` guarantees about its result `v`.
-It is the postcondition `LeanJson.from_json` returns. -/
-structure Parsed (bs : ByteArray) (v : Json) : Prop where
+/-- What a successful document parse of `bs` under `cfg` guarantees about its
+result `v`. It is the postcondition `LeanJson.from_json` returns. -/
+structure ParsedWith (cfg : ParseCfg) (bs : ByteArray) (v : Json) : Prop where
   /-- `v` is the reference parser's answer. -/
-  ref : parseDocument bs = .ok v
-  /-- Printed again, under any options, `v` reads back as itself. -/
-  reprint : ∀ o : PrintOpts, parseDocumentWith .lossless (printWith o 0 v).toByteArray = .ok v
-  /-- If the input is the printing of some value `w` (any options), then `w`
-  is what was read: canonical input re-prints to exactly the input. -/
-  canonical : ∀ (o : PrintOpts) (w : Json), printWith o 0 w = bs.data.toList → w = v
-  /-- Nothing nested deeper than jiter's limit is returned. -/
-  height : v.height ≤ 200
+  ref : parseDocumentWith cfg bs = .ok v
+  /-- Printed again, under any options that read back, `v` reads back as itself. -/
+  reprint : ∀ o : PrintOpts, ReadsBack o v →
+    parseDocumentWith .lossless (printWith o 0 v).toByteArray = .ok v
+  /-- If the input is the printing of some value `w` (under options that read
+  back), then `w` is what was read: canonical input re-prints to exactly the
+  input. -/
+  canonical : ∀ (o : PrintOpts) (w : Json), ReadsBack o w → printWith o 0 w = bs.data.toList → w = v
+  /-- Nothing nested deeper than the configured limit is returned. -/
+  height : ∀ L, cfg.maxDepth = some L → v.height < L
+  /-- In strict mode, no `NaN` or infinity is returned. -/
+  finite : cfg.allowInfNan = false → v.allFinite = true
+
+/-- `ParsedWith` at `from_json`'s defaults. -/
+abbrev Parsed (bs : ByteArray) (v : Json) : Prop := ParsedWith {} bs v
 
 /-- What a successful prefix parse of `bs` from `pos` guarantees about its
 result `r = (value, end position)`. -/
@@ -133,7 +147,7 @@ structure ParsedAt (bs : ByteArray) (pos : Nat) (r : Json × Nat) : Prop where
   /-- If the bytes from `pos` are the printing of some `w` (any options and
   depth) followed by a continuation that cannot extend a number, the result
   is `w` and the end position is just past its printing. -/
-  canonical : ∀ (o : PrintOpts) (d : Nat) (w : Json) (rest : List UInt8),
+  canonical : ∀ (o : PrintOpts) (d : Nat) (w : Json) (rest : List UInt8), ReadsBack o w →
     At bs pos (printWith o d w) rest → NumStop rest → r = (w, pos + (printWith o d w).length)
 
 /-- What `LeanJson.to_json` guarantees about its output `b` for `v` under `o`. -/
@@ -141,11 +155,15 @@ structure Printed (o : PrintOpts) (v : Json) (b : ByteArray) : Prop where
   /-- `b` is exactly the printed bytes. -/
   bytes : b.data.toList = printWith o 0 v
   /-- The lossless parser reads `b` back as `v`. -/
-  roundTrip : parseDocumentWith .lossless b = .ok v
+  roundTrip : ReadsBack o v → parseDocumentWith .lossless b = .ok v
   /-- So does the default (`from_json`) parser, when every integer in `v` is
   within its 4300-byte limit and `v` is nested no deeper than its 201-level
   limit allows. -/
-  roundTripDefault : IntsFit v → v.height ≤ 200 → parseDocument b = .ok v
+  roundTripDefault : ReadsBack o v → IntsFit v → v.height ≤ 200 → parseDocument b = .ok v
+  /-- And the strict (`allow_inf_nan=False`) parser, when moreover `v` has no
+  `NaN` or infinity: `b` is then RFC 8259 JSON. -/
+  roundTripStrict : IntsFit v → v.height ≤ 200 → v.allFinite = true →
+    parseDocumentWith .strict b = .ok v
   /-- Compact options give no layout whitespace: no tab, LF or CR byte, and a
   space only inside a string that has one. -/
   compact : o.indent = none → (9 : UInt8) ∉ b.data.toList ∧ (10 : UInt8) ∉ b.data.toList ∧

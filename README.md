@@ -55,7 +55,8 @@ proved about it (below). Take `.val` when you only want the value.
 | pydantic-core | lean-json |
 |---|---|
 | `from_json(data)` | `from_json data` / `fromJson data` |
-| `to_json(value, indent=None, ensure_ascii=False)` | `to_json value (indent := none) (ensure_ascii := false)` / `toJson` |
+| `from_json(data, allow_inf_nan=False)` | `from_json data (allow_inf_nan := false)` |
+| `to_json(value, indent=None, ensure_ascii=False, inf_nan_mode='constants')` | `to_json value (indent := none) (ensure_ascii := false) (inf_nan_mode := .constants)` / `toJson` |
 | JSON value (`dict`, `list`, `str`, `int`, `float`, `bool`, `None`) | `Json`: `obj`, `arr`, `str`, `num (.int _ / .float _)`, `bool`, `null` |
 | `ValueError` / `json_invalid` context | `JsonError`, `JsonError.description` |
 | `dict` from duplicate keys | `Json.getObjVal?` (last wins), `Json.dedupKeys` |
@@ -70,6 +71,11 @@ beyond Lean's `propext`, `Quot.sound`, `Classical.choice`.
   limit and whose `height` is at most 200 (jiter's nesting limit). Upstream
   rejects longer integer literals and deeper nesting, so both conditions are
   necessary. `to_json_injective`: distinct values print differently.
+* **NaN and infinity.** `from_json` reads `NaN`, `Infinity`, `-Infinity` by
+  default, as pydantic-core does; `from_json data (allow_inf_nan := false)` is
+  strict RFC 8259 and `parse_finite` proves it never returns one.
+  `from_json_to_json_strict`: a value without them round-trips through strict
+  mode under every `inf_nan_mode`.
 * **The depth bound.** `parse_height`: under `maxDepth = some L` no returned
   value has height `L` or more; `parseDocument_height`: `from_json` never
   returns anything deeper than 200, so hostile nesting is rejected (at jiter's
@@ -104,8 +110,6 @@ error offsets, the `Lean.Json` bridge, `json%`) is listed with reasons in
 
 ## Differences from pydantic-core
 
-* `NaN`, `Infinity` and `-Infinity` are not JSON; the type cannot hold them and
-  the parser rejects them (`from_json` accepts them by default).
 * Floats are kept as exact decimals; `Number.toFloat` rounds on demand
   (upstream rounds at parse time, so `1e400` becomes `inf`).
 * `allow_partial` and `cache_strings` are not implemented.

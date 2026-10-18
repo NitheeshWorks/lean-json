@@ -92,6 +92,21 @@ def dedupKeys (kvs : List (String × Json)) : List (String × Json) :=
   kvs.foldl (fun acc kv => insertLast kv.1 kv.2 acc) []
 
 mutual
+/-- Every number in `j` is finite (no `NaN` or infinity): `j` is RFC 8259 JSON. -/
+def allFinite : Json → Bool
+  | .num n => n.isFinite
+  | .arr xs => allFiniteList xs
+  | .obj kvs => allFiniteFields kvs
+  | _ => true
+def allFiniteList : List Json → Bool
+  | [] => true
+  | x :: xs => x.allFinite && allFiniteList xs
+def allFiniteFields : List (String × Json) → Bool
+  | [] => true
+  | (_, v) :: kvs => v.allFinite && allFiniteFields kvs
+end
+
+mutual
 /-- How many containers deep the deepest value inside `j` sits: `0` for a
 scalar or an empty container, one more than the deepest child otherwise.
 jiter (and `from_json`) accepts exactly the documents with `height ≤ 200`. -/
@@ -116,6 +131,7 @@ namespace Number
 def toInt? : Number → Option Int
   | .int i => some i
   | .float d => d.toInt?
+  | _ => none
 
 /-- The nearest `Float` (huge magnitudes become `±inf`, tiny ones `±0.0`, as
 an IEEE parse of the literal would). -/
@@ -131,6 +147,9 @@ def toFloat : Number → Float
       else if d.exp < 0 then Float.ofScientific d.mant true d.exp.natAbs
       else Float.ofScientific d.mant false d.exp.toNat
     if d.neg then -mag else mag
+  | .nan => 0.0 / 0.0
+  | .inf => 1.0 / 0.0
+  | .negInf => -1.0 / 0.0
 
 /-- `x = m * 2^e` exactly, for a finite `x`: (negative, m, e). -/
 def decodeFloat (x : Float) : Option (Bool × Nat × Int) :=
@@ -161,11 +180,12 @@ def log10Floor (num den : Nat) : Int :=
     go 400 1
 
 /-- The shortest decimal that reads back as `x` (via `Float.ofScientific`),
-trying 1 to 17 significant digits; `none` for NaN and infinities. Tested,
-not proved (`tests/Props.lean`). -/
+trying 1 to 17 significant digits; NaN and the infinities map to `.nan`,
+`.inf`, `.negInf`. Always `some` (kept as an `Option` for API stability; see
+`ofFloat`). Tested, not proved (`tests/Props.lean`). -/
 def ofFloat? (x : Float) : Option Number :=
   match decodeFloat x with
-  | none => none
+  | none => some (if x.isNaN then .nan else if x > 0 then .inf else .negInf)
   | some (neg, m, e) =>
     if m = 0 then some (.float (Decimal.normalize neg 0 0))
     else
@@ -186,6 +206,9 @@ def ofFloat? (x : Float) : Option Number :=
       let c := search 16 1
       some (.float (Decimal.normalize neg c.1 c.2))
 
+/-- `ofFloat?` without the `Option`: every `Float` is a `Number`. -/
+def ofFloat (x : Float) : Number := (ofFloat? x).getD .nan
+
 end Number
 
 /-! ## `Lean.Json` bridge -/
@@ -205,6 +228,7 @@ def Json.toLean : Json → Lean.Json
     let m : Int := if d.neg then -(d.mant : Int) else d.mant
     if d.exp > 4300 then .null
     else if d.exp ≥ 0 then .num ⟨m * (10 ^ d.exp.toNat : Nat), 0⟩ else .num ⟨m, d.exp.natAbs⟩
+  | .num _ => .null
   | .str s => .str s
   | .arr xs => .arr (Json.toLeanList xs).toArray
   | .obj kvs => Lean.Json.mkObj (Json.toLeanFields kvs)

@@ -145,11 +145,20 @@ test = ["tests/Conformance.lean::duplicate keys: last value wins", "tests/Props.
 [[requirement]]
 id = "inf_nan"
 upstream = "tests/test_json.py::test_inf_nan_allow"
-title = "NaN, Infinity, -Infinity are not representable; the parser rejects them (upstream from_json accepts them by default)"
-status = "deviation"
-realises = ["LeanJson.Json"]
-theorem = []
-test = ["tests/Conformance.lean::Infinity is rejected (deviation)"]
+title = "from_json reads NaN, Infinity, -Infinity by default (allow_inf_nan=True); allow_inf_nan=False rejects them with jiter's errors"
+status = "implemented"
+realises = ["LeanJson.ParseCfg.allowInfNan", "LeanJson.ParseCfg.strict", "LeanJson.Number.nan", "LeanJson.Number.inf", "LeanJson.Number.negInf", "LeanJson.from_json"]
+theorem = ["LeanJson.from_json_to_json", "LeanJson.from_json_to_json_strict", "LeanJson.parse_finite", "LeanJson.parseNumber_printNumber_ext"]
+test = ["tests/Conformance.lean::Infinity", "tests/Conformance.lean::NaN", "tests/Props.lean::strict parse of constants output: accepted iff the value is finite"]
+
+[[requirement]]
+id = "inf_nan.print"
+upstream = "tests/serializers/test_simple.py::test_float_inf_and_nan_serializers"
+title = "to_json inf_nan_mode: constants (NaN, Infinity, -Infinity; to_json's default), null, strings"
+status = "implemented"
+realises = ["LeanJson.InfNanMode", "LeanJson.printNumberIn", "LeanJson.to_json"]
+theorem = ["LeanJson.from_json_to_json_strict", "LeanJson.print_compact", "LeanJson.printBA_eq"]
+test = ["tests/Conformance.lean::inf, null mode", "tests/Conformance.lean::nan, strings", "tests/Props.lean::null and strings modes print strict RFC 8259 JSON (and round-trip finite values)"]
 
 [[requirement]]
 id = "recursion_limit"

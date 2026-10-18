@@ -33,11 +33,10 @@ instance : IntoJson Nat := ⟨fun n => .num (.int n)⟩
 instance : IntoJson Int := ⟨fun i => .num (.int i)⟩
 instance : IntoJson Number := ⟨.num⟩
 instance : IntoJson Decimal := ⟨fun d => .num (.float d)⟩
-/-- A finite float as its shortest round-tripping decimal; NaN and the
-infinities become `null` (pydantic-core's `ser_json_inf_nan='null'`). -/
-instance : IntoJson Float := ⟨fun x => match Number.ofFloat? x with
-  | some n => .num n
-  | none => .null⟩
+/-- A float as its shortest round-tripping decimal; NaN and the infinities as
+`Number.nan`, `.inf`, `.negInf`, which `to_json` prints per its
+`inf_nan_mode` (`NaN`/`Infinity` by default, as pydantic-core). -/
+instance : IntoJson Float := ⟨fun x => .num (Number.ofFloat x)⟩
 instance {α : Type} [IntoJson α] : IntoJson (Option α) := ⟨fun
   | some a => intoJson a
   | none => .null⟩

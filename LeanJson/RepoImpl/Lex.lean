@@ -129,11 +129,17 @@ structure ParseCfg where
   `none` lifts it: then the parser's stack use grows with the input's
   nesting, so it is not for untrusted input. -/
   maxDepth : Option Nat := some 201
+  /-- Read `NaN`, `Infinity` and `-Infinity` (pydantic-core's
+  `allow_inf_nan`, `true` in `from_json`); `false` is strict RFC 8259. -/
+  allowInfNan : Bool := true
   deriving DecidableEq, Repr, Inhabited
 
 /-- The configuration with no limits. Not for untrusted input: without a depth
 limit, deeply nested input can exhaust the stack. -/
-def ParseCfg.lossless : ParseCfg := { maxIntLen := none, maxDepth := none }
+def ParseCfg.lossless : ParseCfg := { maxIntLen := none, maxDepth := none, allowInfNan := true }
+
+/-- Strict RFC 8259 numbers: no `NaN` or infinities, default limits. -/
+def ParseCfg.strict : ParseCfg := { allowInfNan := false }
 
 /-- Whether a value may be parsed inside `d` containers. -/
 def ParseCfg.depthOk (cfg : ParseCfg) (d : Nat) : Bool :=
@@ -147,10 +153,10 @@ def ParseCfg.intLenOk (cfg : ParseCfg) (n : Nat) : Bool :=
   | none => true
   | some L => n ≤ L
 
-/-- A number at `pos` (which holds `-` or a digit). -/
-def parseNumber (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) : Except ParseErr (Number × Nat) := do
-  let neg := bs[pos]? == some 45
-  let p0 := if neg then pos + 1 else pos
+/-- The digits of a number from `p0` (just past its sign, if any), the number
+having started at `pos`. -/
+def parseNumberBody (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) (neg : Bool) (p0 : Nat) :
+    Except ParseErr (Number × Nat) := do
   let (iv, p1) ← parseIntPart bs p0
   if cfg.intLenOk (p1 - pos) = false then
     .error ⟨.numberOutOfRange, pos + cfg.maxIntLen.getD 0 + 1⟩
@@ -158,6 +164,15 @@ def parseNumber (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) : Except ParseErr 
     let (fv, fc, p2) ← parseFrac bs p1
     let (he, ev, p3) ← parseExp bs p2
     .ok (mkNumber neg iv fv fc he ev, p3)
+
+/-- A number at `pos` (which holds `-` or a digit). With `allowInfNan`,
+`-Infinity` too. -/
+def parseNumber (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) : Except ParseErr (Number × Nat) :=
+  if bs[pos]? == some 45 then
+    if cfg.allowInfNan && bs[pos + 1]? == some 73 then
+      (expectLit bs (pos + 2) [110, 102, 105, 110, 105, 116, 121]).map (fun p => (.negInf, p))
+    else parseNumberBody cfg bs pos true (pos + 1)
+  else parseNumberBody cfg bs pos false pos
 
 /-- One hex digit at `i`. -/
 def hexAt (bs : ByteArray) (i : Nat) : Except ParseErr Nat :=

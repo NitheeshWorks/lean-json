@@ -153,6 +153,15 @@ theorem printNat_quiet (P : Prop) (n : Nat) : AllQuiet P (printNat n) :=
 
 theorem printNumber_quiet (P : Prop) (n : Number) : AllQuiet P (printNumber n) := by
   cases n with
+  | nan =>
+    simp only [printNumber, litNaN, allQuiet_cons, allQuiet_nil, and_true]
+    exact ⟨quiet_lit (by decide), quiet_lit (by decide), quiet_lit (by decide)⟩
+  | inf =>
+    simp only [printNumber, litInfinity, allQuiet_cons, allQuiet_nil, and_true]
+    quiet_split
+  | negInf =>
+    simp only [printNumber, litInfinity, allQuiet_cons, allQuiet_nil, and_true]
+    quiet_split
   | int i =>
     simp only [printNumber, printInt]
     split
@@ -179,6 +188,19 @@ theorem printNumber_quiet (P : Prop) (n : Number) : AllQuiet P (printNumber n) :
         · simp only [allQuiet_cons]; exact ⟨quiet_lit (by decide), printNat_quiet P _⟩
         · simp only [allQuiet_cons]; exact ⟨quiet_lit (by decide), printNat_quiet P _⟩
 
+theorem printNumberIn_quiet (o : PrintOpts) (n : Number) :
+    AllQuiet (HasSpaceInString (.num n)) (printNumberIn o n) := by
+  unfold printNumberIn
+  split
+  · exact printNumber_quiet _ n
+  · split
+    · exact printNumber_quiet _ n
+    · simp only [litNull, allQuiet_cons, allQuiet_nil, and_true]
+      exact ⟨quiet_lit (by decide), quiet_lit (by decide), quiet_lit (by decide), quiet_lit (by decide)⟩
+    · apply allQuiet_mono (printString_quiet _ _)
+      intro h
+      cases n <;> simp [Number.constName] at h
+
 section
 variable (o : PrintOpts) (ho : o.indent = none)
 include ho
@@ -198,7 +220,7 @@ theorem printWith_quiet : ∀ (v : Json) (d : Nat), AllQuiet (HasSpaceInString v
     simp only [printWith, litFalse, allQuiet_cons, allQuiet_nil, and_true]
     exact ⟨quiet_lit (by decide), quiet_lit (by decide), quiet_lit (by decide), quiet_lit (by decide),
       quiet_lit (by decide)⟩
-  | .num n, d => printNumber_quiet _ n
+  | .num n, d => printNumberIn_quiet o n
   | .str s, d => printString_quiet _ s
   | .arr [], d => by
     simp only [printWith, allQuiet_cons, allQuiet_nil, and_true]

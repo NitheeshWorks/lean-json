@@ -141,9 +141,10 @@ theorem parseExp_adv {bs : ByteArray} {pos : Nat} {r : Bool × Int × Nat} (h : 
     · cases h; exact Adv.refl _ _
   · cases h; exact Adv.refl _ _
 
-theorem parseNumber_adv {cfg : ParseCfg} {bs : ByteArray} {pos : Nat} {r : Number × Nat}
-    (h : parseNumber cfg bs pos = .ok r) : Adv bs pos r.2 ∧ pos < r.2 := by
-  unfold parseNumber at h
+theorem parseNumberBody_adv {cfg : ParseCfg} {bs : ByteArray} {pos p0 : Nat} {neg : Bool}
+    {r : Number × Nat} (hp0 : Adv bs pos p0) (h : parseNumberBody cfg bs pos neg p0 = .ok r) :
+    Adv bs pos r.2 ∧ pos < r.2 := by
+  unfold parseNumberBody at h
   simp only [bind, Except.bind] at h
   split at h
   · cases h
@@ -160,15 +161,29 @@ theorem parseNumber_adv {cfg : ParseCfg} {bs : ByteArray} {pos : Nat} {r : Numbe
         have a1 := parseIntPart_adv h1
         have a2 := parseFrac_adv h2
         have a3 := parseExp_adv h3
-        have a0 : Adv bs pos (if (bs[pos]? == some 45) = true then pos + 1 else pos) := by
-          split
-          · rename_i hh
-            have : bs[pos]? = some 45 := by simpa using hh
-            exact Adv.step this
-          · exact Adv.refl _ _
-        refine ⟨((a0.trans a1.1).trans a2).trans a3, ?_⟩
-        have b0 := a0.1; have b1 := a1.2; have b2 := a2.1; have b3 := a3.1
+        refine ⟨((hp0.trans a1.1).trans a2).trans a3, ?_⟩
+        have b0 := hp0.1; have b1 := a1.2; have b2 := a2.1; have b3 := a3.1
         exact Nat.lt_of_lt_of_le (Nat.lt_of_le_of_lt b0 b1) (Nat.le_trans b2 b3)
+
+theorem parseNumber_adv {cfg : ParseCfg} {bs : ByteArray} {pos : Nat} {r : Number × Nat}
+    (h : parseNumber cfg bs pos = .ok r) : Adv bs pos r.2 ∧ pos < r.2 := by
+  unfold parseNumber at h
+  by_cases c45 : (bs[pos]? == some 45) = true
+  · rw [ite_eq_left c45] at h
+    have h45 : bs[pos]? = some 45 := by simpa using c45
+    by_cases ci : (cfg.allowInfNan && bs[pos + 1]? == some 73) = true
+    · rw [ite_eq_left ci] at h
+      have h73 : bs[pos + 1]? = some 73 := by simp at ci; exact ci.2
+      cases hl : expectLit bs (pos + 2) [110, 102, 105, 110, 105, 116, 121] with
+      | error e => rw [hl] at h; cases h
+      | ok p =>
+        rw [hl] at h; cases h
+        have a := expectLit_adv bs _ _ _ hl
+        exact ⟨((Adv.step h45).trans (Adv.step h73)).trans a, by have := a.1; simp; omega⟩
+    · rw [ite_eq_right ci] at h
+      exact parseNumberBody_adv (Adv.step h45) h
+  · rw [ite_eq_right c45] at h
+    exact parseNumberBody_adv (Adv.refl _ _) h
 
 theorem hexAt_ok {bs : ByteArray} {i n : Nat} (h : hexAt bs i = .ok n) : i < bs.size := by
   unfold hexAt at h

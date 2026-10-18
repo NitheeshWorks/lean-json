@@ -59,9 +59,9 @@ def stringCodec (ascii : Bool) : Codec String where
 def numberCodec (cfg : ParseCfg) : Codec Number where
   encode := printNumber
   decode := parseNumber cfg
-  Valid n := cfg.intLenOk n.intLen = true
+  Valid n := cfg.intLenOk n.intLen = true ∧ (n.isFinite = true ∨ (n = .negInf ∧ cfg.allowInfNan = true))
   Stop := NumStop
-  law n _ _ _ hv h hr := parseNumber_printNumber_ext cfg n hv h hr
+  law n _ _ _ hv h hr := parseNumber_printNumber_ext cfg n hv.1 hv.2 h hr
 
 theorem length_le_of_at {bs : ByteArray} {pos : Nat} {l rest : List UInt8} (h : At bs pos l rest) :
     l.length ≤ bs.size - pos := by
@@ -73,10 +73,10 @@ theorem length_le_of_at {bs : ByteArray} {pos : Nat} {l rest : List UInt8} (h : 
 def valueCodec (cfg : ParseCfg) (o : PrintOpts) (d : Nat) : Codec Json where
   encode := printWith o d
   decode := parseValueAt cfg
-  Valid := Fits cfg
+  Valid v := Fits cfg v ∧ ReadsBack o v
   Stop := NumStop
   law v bs pos rest hv h hr := by
-    have := parseValue_ext o cfg v d 0 (ws := []) wsList_nil (by simpa using h) hr hv
+    have := parseValue_ext o cfg v d 0 (ws := []) wsList_nil (by simpa using h) hr hv.1 hv.2
     simpa [parseValueAt_zero] using this
 
 theorem numStop_nil : NumStop [] := by intro b hb; cases hb
@@ -84,7 +84,7 @@ theorem numStop_nil : NumStop [] := by intro b hb; cases hb
 mutual
 theorem fitsAt_lossless : ∀ (k : Nat) (v : Json), FitsAt .lossless k v
   | _, .null | _, .bool _ | _, .str _ => rfl
-  | _, .num _ => ⟨rfl, rfl⟩
+  | _, .num _ => ⟨rfl, rfl, Or.inl rfl⟩
   | k, .arr xs => ⟨rfl, fitsList_lossless (k + 1) xs⟩
   | k, .obj kvs => ⟨rfl, fitsFields_lossless (k + 1) kvs⟩
 theorem fitsList_lossless : ∀ (k : Nat) (xs : List Json), FitsList .lossless k xs
@@ -100,19 +100,21 @@ theorem fits_lossless (v : Json) : Fits .lossless v := fitsAt_lossless 0 v
 /-- **Round trip on any continuation**, the `_ext` form: for the lossless
 parser, every value under every print option. -/
 theorem parse_print_ext : ParsePrintExt (parseValueAt .lossless) printWith :=
-  fun o d v _ _ rest h hr => (valueCodec .lossless o d).law v _ _ rest (fits_lossless v) h hr
+  fun o d v _ _ rest hrb h hr => (valueCodec .lossless o d).law v _ _ rest ⟨fits_lossless v, hrb⟩ h hr
 
 theorem string_ext : StringExt parseString printString :=
   fun ascii s _ _ _ h => parseString_printString_ext ascii s h
 
-theorem number_ext : NumberExt (parseNumber .lossless) printNumber :=
-  fun n _ _ _ h hr => parseNumber_printNumber_ext .lossless n rfl h hr
+theorem number_ext : NumberExt (parseNumber .lossless) printNumber := by
+  intro n _ _ _ h1 h2 h hr
+  apply parseNumber_printNumber_ext .lossless n rfl _ h hr
+  cases n <;> simp_all [Number.isFinite] <;> rfl
 
 /-- A document parse of the printed bytes. -/
-theorem parseDocumentWith_print (cfg : ParseCfg) (o : PrintOpts) (j : Json) (h : Fits cfg j) :
-    parseDocumentWith cfg (printWith o 0 j).toByteArray = .ok j := by
+theorem parseDocumentWith_print (cfg : ParseCfg) (o : PrintOpts) (j : Json) (h : Fits cfg j)
+    (hrb : ReadsBack o j) : parseDocumentWith cfg (printWith o 0 j).toByteArray = .ok j := by
   unfold parseDocumentWith
-  have e := (valueCodec cfg o 0).decode_encode (rest := []) h numStop_nil
+  have e := (valueCodec cfg o 0).decode_encode (rest := []) ⟨h, hrb⟩ numStop_nil
   simp only [valueCodec, List.append_nil] at e
   rw [e]
   simp only
@@ -120,18 +122,21 @@ theorem parseDocumentWith_print (cfg : ParseCfg) (o : PrintOpts) (j : Json) (h :
     rw [skipWs, dite_eq_right (by simp)]
   rw [hs, ite_eq_right (by simp)]
 
-/-- **`parse (print j) = .ok j`** for every value whose integers are within
-jiter's 4300-byte limit, under every print option (compact, indented,
-ASCII-only). The side condition is necessary: upstream rejects longer integer
-literals, so their printing cannot parse back. -/
-theorem parse_print (j : Json) (o : PrintOpts := {}) (h : Fits {} j) :
+/-- **`parse (print j) = .ok j`** for every value within the default limits
+(integers within 4300 bytes, height at most 200), under every print option
+whose NaN/infinity mode reads back (the default `constants`, or any mode for
+a value with no NaN or infinity). Each condition is necessary: upstream
+rejects longer integer literals and deeper nesting, and `null`/`strings`
+modes print a NaN as something else. -/
+theorem parse_print (j : Json) (o : PrintOpts := {}) (h : Fits {} j) (hrb : ReadsBack o j) :
     parseDocument (printWith o 0 j).toByteArray = .ok j :=
-  parseDocumentWith_print {} o j h
+  parseDocumentWith_print {} o j h hrb
 
-/-- The lossless parser reads back every printed value, with no side condition. -/
-theorem parseLossless_print (j : Json) (o : PrintOpts := {}) :
+/-- The lossless parser reads back every printed value whose NaN/infinity mode
+reads back. -/
+theorem parseLossless_print (j : Json) (o : PrintOpts := {}) (hrb : ReadsBack o j) :
     parseDocumentWith .lossless (printWith o 0 j).toByteArray = .ok j :=
-  parseDocumentWith_print .lossless o j (fits_lossless j)
+  parseDocumentWith_print .lossless o j (fits_lossless j) hrb
 
 
 /-! ## Limits only add errors
@@ -140,9 +145,10 @@ A successful parse under any configuration is also the lossless parser's
 answer: `ParseCfg` limits can turn an answer into `number out of range`, never
 into a different value. -/
 
-theorem parseNumber_relax {cfg : ParseCfg} {bs : ByteArray} {pos : Nat} {r : Number × Nat}
-    (h : parseNumber cfg bs pos = .ok r) : parseNumber .lossless bs pos = .ok r := by
-  unfold parseNumber at h ⊢
+theorem parseNumberBody_relax {cfg : ParseCfg} {bs : ByteArray} {pos : Nat} {neg : Bool} {p0 : Nat}
+    {r : Number × Nat} (h : parseNumberBody cfg bs pos neg p0 = .ok r) :
+    parseNumberBody .lossless bs pos neg p0 = .ok r := by
+  unfold parseNumberBody at h ⊢
   simp only [bind, Except.bind] at h ⊢
   split at h
   · cases h
@@ -151,6 +157,36 @@ theorem parseNumber_relax {cfg : ParseCfg} {bs : ByteArray} {pos : Nat} {r : Num
     · cases h
     · simp only [ParseCfg.intLenOk, ParseCfg.lossless, Bool.true_eq_false, ↓reduceIte]
       exact h
+
+theorem parseNumberBody_I {cfg : ParseCfg} {bs : ByteArray} {pos : Nat} {neg : Bool} {p0 : Nat}
+    (hI : bs[p0]? = some 73) (r : Number × Nat) : parseNumberBody cfg bs pos neg p0 ≠ .ok r := by
+  intro h
+  unfold parseNumberBody at h
+  simp only [bind, Except.bind] at h
+  split at h
+  · cases h
+  · rename_i x1 h1
+    unfold parseIntPart at h1
+    rw [hI] at h1
+    simp (config := { decide := true }) [] at h1
+
+theorem parseNumber_relax {cfg : ParseCfg} {bs : ByteArray} {pos : Nat} {r : Number × Nat}
+    (h : parseNumber cfg bs pos = .ok r) : parseNumber .lossless bs pos = .ok r := by
+  unfold parseNumber at h ⊢
+  by_cases c45 : (bs[pos]? == some 45) = true
+  · rw [ite_eq_left c45] at h ⊢
+    by_cases ci : (cfg.allowInfNan && bs[pos + 1]? == some 73) = true
+    · rw [ite_eq_left ci] at h
+      have h73 : (bs[pos + 1]? == some 73) = true := by simp at ci; simp [ci.2]
+      rw [ite_eq_left (by simp [ParseCfg.lossless, h73])]
+      exact h
+    · rw [ite_eq_right ci] at h
+      by_cases h73 : (bs[pos + 1]? == some 73) = true
+      · exact absurd h (parseNumberBody_I (by simpa using h73) r)
+      · rw [ite_eq_right (by simp [ParseCfg.lossless, h73])]
+        exact parseNumberBody_relax h
+  · rw [ite_eq_right c45] at h ⊢
+    exact parseNumberBody_relax h
 
 /-- The value parser's answer under `cfg`, if successful, is the lossless one. -/
 def RelaxV (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) : Prop :=
@@ -232,7 +268,12 @@ theorem relaxV_step (cfg : ParseCfg) (bs : ByteArray) (pos : Nat)
     | error e => rw [hx] at h; cases h
     | ok x => rw [hx] at h; rw [parseNumber_relax hx]; exact h
   rw [ite_eq_right cn] at h ⊢
-  exact h
+  by_cases ha : cfg.allowInfNan = true
+  · have hl : ParseCfg.lossless.allowInfNan = true := rfl
+    rw [ha] at h; rw [hl]; exact h
+  · have hf : cfg.allowInfNan = false := by simpa using ha
+    rw [hf] at h
+    simp at h
 
 theorem relaxE_step (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) (hV : RelaxV cfg bs pos)
     (IHe : ∀ p, bs.size - p < bs.size - pos → RelaxE cfg bs p) : RelaxE cfg bs pos := by
@@ -341,17 +382,22 @@ theorem parseDocument_relax {cfg : ParseCfg} {bs : ByteArray} {v : Json}
 
 /-- A successful parse of a canonical printing is the value printed. -/
 theorem parse_canonical {cfg : ParseCfg} {bs : ByteArray} {v w : Json} {o : PrintOpts}
-    (h : parseDocumentWith cfg bs = .ok v) (hw : printWith o 0 w = bs.data.toList) : w = v := by
-  have e1 := parseLossless_print w o
+    (h : parseDocumentWith cfg bs = .ok v) (hrb : ReadsBack o w) (hw : printWith o 0 w = bs.data.toList) :
+    w = v := by
+  have e1 := parseLossless_print w o hrb
   have hb : (printWith o 0 w).toByteArray = bs := by
     apply ByteArray.ext; rw [List.data_toByteArray, hw]
   rw [hb, parseDocument_relax h] at e1
   cases e1; rfl
 
-/-- **The printer is injective**, under every option. -/
-theorem print_injective (o : PrintOpts) : Function.Injective (printWith o 0) := fun _ _ h =>
-  (valueCodec .lossless o 0).encode_injective numStop_nil (fits_lossless _) (fits_lossless _) h
+/-- **The printer is injective** under every option that prints NaN and the
+infinities as constants (the default). (`null` and `strings` modes are not:
+they print `NaN` as `null` or `"NaN"`.) -/
+theorem print_injective (o : PrintOpts) (ho : o.infNan = .constants) :
+    Function.Injective (printWith o 0) := fun _ _ h =>
+  (valueCodec .lossless o 0).encode_injective numStop_nil ⟨fits_lossless _, Or.inl ho⟩
+    ⟨fits_lossless _, Or.inl ho⟩ h
 
-theorem print_injective_spec : PrintInjective printWith := fun o _ _ h => print_injective o h
+theorem print_injective_spec : PrintInjective printWith := fun o _ _ ho h => print_injective o ho h
 
 end LeanJson

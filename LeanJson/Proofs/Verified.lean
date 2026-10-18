@@ -32,8 +32,13 @@ structure VerifiedJson where
   compact : Compact printBytes
   /-- `parse (print j) = .ok j`, for every value within the default limits:
   integers within 4300 bytes, height at most 200. -/
-  parsePrint : ∀ (j : Json) (o : PrintOpts), IntsFit j → j.height ≤ 200 →
+  parsePrint : ∀ (j : Json) (o : PrintOpts), ReadsBack o j → IntsFit j → j.height ≤ 200 →
     parseDocument (print o 0 j).toByteArray = .ok j
+  /-- Strict mode reads back every finite value. -/
+  parsePrintStrict : ∀ (j : Json) (o : PrintOpts), IntsFit j → j.height ≤ 200 → j.allFinite = true →
+    parseDocumentWith .strict (print o 0 j).toByteArray = .ok j
+  /-- Strict mode never returns a NaN or infinity. -/
+  strictFinite : ∀ (bs : ByteArray) (v : Json), parseDocumentWith .strict bs = .ok v → v.allFinite = true
   /-- The default parser never returns a value deeper than its limit. -/
   depthBound : ∀ (bs : ByteArray) (v : Json), parseDocument bs = .ok v → v.height ≤ 200
 
@@ -45,7 +50,9 @@ def theVerifiedJson : VerifiedJson where
   printInjective := print_injective_spec
   stepProgress := step_progress
   compact := print_compact_spec
-  parsePrint j o hi hd := parse_print j o (fits_default hi hd)
+  parsePrint j o hrb hi hd := parse_print j o (fits_default hi hd) hrb
+  parsePrintStrict j o hi hd hf := parseDocumentWith_print .strict o j (fits_strict hi hd hf) (Or.inr hf)
+  strictFinite _ _ h := parse_finite rfl h
   depthBound _ _ h := parseDocument_height h
 
 end LeanJson
