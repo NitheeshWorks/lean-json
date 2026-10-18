@@ -170,15 +170,18 @@ theorem printFirstM_head (o : PrintOpts) (d : Nat) (k : String) (v : Json) (kvs 
   exact ⟨_, by simp [printFirstM, printString]; rfl⟩
 
 mutual
-theorem parseValue_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (v : Json) (d : Nat) {bs : ByteArray} {pos : Nat}
-    {ws rest : List UInt8}, WsList ws → At bs pos (ws ++ printWith o d v) rest →
-    NumStop rest → Spec.Fits cfg v →
-    parseValueAt cfg bs pos = .ok (v, pos + ws.length + (printWith o d v).length)
-  | .null, d, bs, pos, ws, rest, hw, h, hr, hfit => by
+theorem parseValue_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (v : Json) (d k : Nat) {bs : ByteArray}
+    {pos : Nat} {ws rest : List UInt8}, WsList ws → At bs pos (ws ++ printWith o d v) rest →
+    NumStop rest → Spec.FitsAt cfg k v →
+    parseValueAtD cfg bs k pos = .ok (v, pos + ws.length + (printWith o d v).length)
+  | .null, d, k, bs, pos, ws, rest, hw, h, hr, hfit => by
     have hsk := at_ws_head h hw rfl (by decide)
     have hp := h.app
     simp only [printWith, litNull] at hp ⊢
-    rw [parseValueAt_eq]
+    rw [parseValueAtD_eq]
+    have hk : cfg.depthOk k = true := by
+      first | exact hfit | exact hfit.1
+    simp only [hk, Bool.true_eq_false, ↓reduceIte]
     simp only [hsk, hp.get]
     simp only [show ((110 : UInt8) == 34) = false by decide, show ((110 : UInt8) == 91) = false by decide,
       show ((110 : UInt8) == 123) = false by decide, show ((110 : UInt8) == 116) = false by decide,
@@ -186,29 +189,35 @@ theorem parseValue_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (v : Json) (d : Na
       Bool.false_eq_true, ↓reduceIte]
     rw [expectLit_ext _ _ hp.next]
     simp
-  | .bool true, d, bs, pos, ws, rest, hw, h, hr, hfit => by
+  | .bool true, d, k, bs, pos, ws, rest, hw, h, hr, hfit => by
     have hsk := at_ws_head h hw rfl (by decide)
     have hp := h.app
     simp only [printWith, litTrue] at hp ⊢
-    rw [parseValueAt_eq]
+    rw [parseValueAtD_eq]
+    have hk : cfg.depthOk k = true := by
+      first | exact hfit | exact hfit.1
+    simp only [hk, Bool.true_eq_false, ↓reduceIte]
     simp only [hsk, hp.get]
     simp only [show ((116 : UInt8) == 34) = false by decide, show ((116 : UInt8) == 91) = false by decide,
       show ((116 : UInt8) == 123) = false by decide, show ((116 : UInt8) == 116) = true by decide,
       Bool.false_eq_true, ↓reduceIte]
     rw [expectLit_ext _ _ hp.next]
     simp
-  | .bool false, d, bs, pos, ws, rest, hw, h, hr, hfit => by
+  | .bool false, d, k, bs, pos, ws, rest, hw, h, hr, hfit => by
     have hsk := at_ws_head h hw rfl (by decide)
     have hp := h.app
     simp only [printWith, litFalse] at hp ⊢
-    rw [parseValueAt_eq]
+    rw [parseValueAtD_eq]
+    have hk : cfg.depthOk k = true := by
+      first | exact hfit | exact hfit.1
+    simp only [hk, Bool.true_eq_false, ↓reduceIte]
     simp only [hsk, hp.get]
     simp only [show ((102 : UInt8) == 34) = false by decide, show ((102 : UInt8) == 91) = false by decide,
       show ((102 : UInt8) == 123) = false by decide, show ((102 : UInt8) == 116) = false by decide,
       show ((102 : UInt8) == 102) = true by decide, Bool.false_eq_true, ↓reduceIte]
     rw [expectLit_ext _ _ hp.next]
     simp
-  | .num x, d, bs, pos, ws, rest, hw, h, hr, hfit => by
+  | .num x, d, k, bs, pos, ws, rest, hw, h, hr, hfit => by
     obtain ⟨b, t, e, hb⟩ := printNumber_head x
     have hpw : printWith o d (.num x) = printNumber x := rfl
     rw [hpw] at h ⊢
@@ -219,39 +228,51 @@ theorem parseValue_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (v : Json) (d : Na
       · exact (digitByte_ne dd).2.2.2.2.2
     have hsk := at_ws_head h hw e hws
     have hp := h.app
-    rw [parseValueAt_eq]
+    rw [parseValueAtD_eq]
+    have hk : cfg.depthOk k = true := by
+      first | exact hfit | exact hfit.1
+    simp only [hk, Bool.true_eq_false, ↓reduceIte]
     simp only [hsk]
     rw [show bs[pos + ws.length]? = some b by rw [e] at hp; exact hp.get]
     obtain ⟨f1, f2, f3, f4, f5, f6, f7⟩ := hfacts
     simp only [f1, f2, f3, f4, f5, f6, f7, Bool.false_eq_true, ↓reduceIte]
-    rw [parseNumber_printNumber_ext cfg x hfit hp hr]
+    rw [parseNumber_printNumber_ext cfg x hfit.2 hp hr]
     rfl
-  | .str s, d, bs, pos, ws, rest, hw, h, hr, hfit => by
+  | .str s, d, k, bs, pos, ws, rest, hw, h, hr, hfit => by
     have hsk := at_ws_head h hw rfl (by decide)
     have hp := h.app
     have hpw : printWith o d (.str s) = printString o.ensureAscii s := rfl
     rw [hpw] at hp ⊢
-    rw [parseValueAt_eq]
+    rw [parseValueAtD_eq]
+    have hk : cfg.depthOk k = true := by
+      first | exact hfit | exact hfit.1
+    simp only [hk, Bool.true_eq_false, ↓reduceIte]
     simp only [hsk]
     rw [show bs[pos + ws.length]? = some 34 by unfold printString at hp; exact hp.get]
     simp only [show ((34 : UInt8) == 34) = true by decide, ↓reduceIte]
     rw [parseString_printString_ext _ s hp]
     rfl
-  | .arr [], d, bs, pos, ws, rest, hw, h, hr, hfit => by
+  | .arr [], d, k, bs, pos, ws, rest, hw, h, hr, hfit => by
     have hsk := at_ws_head h hw rfl (by decide)
     have hp := h.app
     simp only [printWith] at hp ⊢
-    rw [parseValueAt_eq]
+    rw [parseValueAtD_eq]
+    have hk : cfg.depthOk k = true := by
+      first | exact hfit | exact hfit.1
+    simp only [hk, Bool.true_eq_false, ↓reduceIte]
     simp only [hsk, hp.get]
     simp only [show ((91 : UInt8) == 34) = false by decide, show ((91 : UInt8) == 91) = true by decide,
       Bool.false_eq_true, ↓reduceIte]
     rw [skipWs_nil (by decide) hp.next, hp.next.get]
     simp
-  | .arr (x :: xs), d, bs, pos, ws, rest, hw, h, hr, hfit => by
+  | .arr (x :: xs), d, k, bs, pos, ws, rest, hw, h, hr, hfit => by
     rw [printWith_arr_cons] at h ⊢
     have hsk := at_ws_head h hw rfl (by decide)
     have hp := h.app
-    rw [parseValueAt_eq]
+    rw [parseValueAtD_eq]
+    have hk : cfg.depthOk k = true := by
+      first | exact hfit | exact hfit.1
+    simp only [hk, Bool.true_eq_false, ↓reduceIte]
     simp only [hsk, hp.get]
     simp only [show ((91 : UInt8) == 34) = false by decide, show ((91 : UInt8) == 91) = true by decide,
       Bool.false_eq_true, ↓reduceIte]
@@ -265,28 +286,34 @@ theorem parseValue_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (v : Json) (d : Na
       rw [e] at hp2; exact hp2.get]
     have hb93 : (b == 93) = false := by simpa using (valueHead_props hb).2.1
     simp only [hb93, Bool.false_eq_true, ↓reduceIte]
-    rw [parseElems_ext o cfg (x :: xs) (d + 1) d [] (by simp) (by simpa [List.append_assoc] using hp2) hfit]
+    rw [parseElems_ext o cfg (x :: xs) (d + 1) d (k + 1) [] (by omega) (by simp) (by simpa [List.append_assoc] using hp2) hfit.2]
     simp only [List.reverse_nil, List.nil_append, List.length_cons, List.length_append]
     congr 2; omega
-  | .obj [], d, bs, pos, ws, rest, hw, h, hr, hfit => by
+  | .obj [], d, k, bs, pos, ws, rest, hw, h, hr, hfit => by
     have hsk := at_ws_head h hw rfl (by decide)
     have hp := h.app
     simp only [printWith] at hp ⊢
-    rw [parseValueAt_eq]
+    rw [parseValueAtD_eq]
+    have hk : cfg.depthOk k = true := by
+      first | exact hfit | exact hfit.1
+    simp only [hk, Bool.true_eq_false, ↓reduceIte]
     simp only [hsk, hp.get]
     simp only [show ((123 : UInt8) == 34) = false by decide, show ((123 : UInt8) == 91) = false by decide,
       show ((123 : UInt8) == 123) = true by decide, Bool.false_eq_true, ↓reduceIte]
     rw [skipWs_nil (by decide) hp.next, hp.next.get]
     simp
-  | .obj ((k, v) :: kvs), d, bs, pos, ws, rest, hw, h, hr, hfit => by
+  | .obj ((key, v) :: kvs), d, k, bs, pos, ws, rest, hw, h, hr, hfit => by
     rw [printWith_obj_cons] at h ⊢
     have hsk := at_ws_head h hw rfl (by decide)
     have hp := h.app
-    rw [parseValueAt_eq]
+    rw [parseValueAtD_eq]
+    have hk : cfg.depthOk k = true := by
+      first | exact hfit | exact hfit.1
+    simp only [hk, Bool.true_eq_false, ↓reduceIte]
     simp only [hsk, hp.get]
     simp only [show ((123 : UInt8) == 34) = false by decide, show ((123 : UInt8) == 91) = false by decide,
       show ((123 : UInt8) == 123) = true by decide, Bool.false_eq_true, ↓reduceIte]
-    obtain ⟨t, e⟩ := printFirstM_head o (d + 1) k v kvs
+    obtain ⟨t, e⟩ := printFirstM_head o (d + 1) key v kvs
     have hp1 := hp.next
     rw [List.append_assoc] at hp1
     have hq := at_ws_head hp1 (wsList_nl o (d + 1)) (by rw [e]; rfl) (by decide)
@@ -295,19 +322,19 @@ theorem parseValue_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (v : Json) (d : Na
     rw [show bs[pos + ws.length + 1 + (o.nl (d + 1)).length]? = some 34 by
       rw [e] at hp2; exact hp2.get]
     simp (config := { decide := true }) only [↓reduceIte]
-    rw [parseMembers_ext o cfg ((k, v) :: kvs) (d + 1) d [] (by simp) (by simpa [List.append_assoc] using hp2) hfit]
+    rw [parseMembers_ext o cfg ((key, v) :: kvs) (d + 1) d (k + 1) [] (by omega) (by simp) (by simpa [List.append_assoc] using hp2) hfit.2]
     simp only [List.reverse_nil, List.nil_append, List.length_cons, List.length_append]
     congr 2; omega
 
-theorem parseElems_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (xs : List Json) (d e : Nat) {bs : ByteArray} {pos : Nat}
-    {rest : List UInt8} (acc : List Json), xs ≠ [] →
+theorem parseElems_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (xs : List Json) (d e k : Nat) {bs : ByteArray}
+    {start pos : Nat} {rest : List UInt8} (acc : List Json), start ≤ pos → xs ≠ [] →
     At bs pos (printFirst o d xs ++ o.nl e ++ [93]) rest →
-    Spec.FitsList cfg xs →
-    parseElemsAt cfg bs pos acc = .ok (.arr (acc.reverse ++ xs), pos + (printFirst o d xs ++ o.nl e ++ [93]).length)
-  | [], _, _, _, _, _, _, hne, _, _ => absurd rfl hne
-  | x :: xs, d, e, bs, pos, rest, acc, _, h, hfit => by
+    Spec.FitsList cfg k xs →
+    parseElemsAt cfg bs k start pos acc = .ok (.arr (acc.reverse ++ xs), pos + (printFirst o d xs ++ o.nl e ++ [93]).length)
+  | [], _, _, _, _, _, _, _, _, _, hne, _, _ => absurd rfl hne
+  | x :: xs, d, e, k, bs, start, pos, rest, acc, hsp, _, h, hfit => by
     simp only [printFirst, List.length_append] at h ⊢
-    rw [parseElemsAt_eq]
+    rw [parseElemsAt_eq _ _ _ _ _ _ hsp]
     match xs with
     | [] =>
       simp only [printElems, List.append_nil] at h ⊢
@@ -318,7 +345,7 @@ theorem parseElems_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (xs : List Json) (
         · exact numStop_of_head (b := 10) rfl (by decide)
       have hx : At bs pos ([] ++ printWith o d x) (o.nl e ++ [93] ++ rest) := by
         simpa [List.append_assoc] using h.assoc.assoc
-      rw [parseValue_ext o cfg x d wsList_nil hx hns hfit.1]
+      rw [parseValue_ext o cfg x d k wsList_nil hx hns hfit.1]
       simp only [List.length_nil, Nat.add_zero]
       have h1 : At bs (pos + (printWith o d x).length) (o.nl e ++ [93]) rest :=
         (by simpa [List.append_assoc] using h : At bs pos (printWith o d x ++ (o.nl e ++ [93])) rest).app
@@ -332,7 +359,7 @@ theorem parseElems_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (xs : List Json) (
       have hx : At bs pos ([] ++ printWith o d x)
           (44 :: (o.nl d ++ (printWith o d y ++ (printElems o d ys ++ (o.nl e ++ ([93] ++ rest)))))) := by
         simpa [List.append_assoc] using h.assoc
-      rw [parseValue_ext o cfg x d wsList_nil hx (numStop_of_head rfl (by simp)) hfit.1]
+      rw [parseValue_ext o cfg x d k wsList_nil hx (numStop_of_head rfl (by simp)) hfit.1]
       simp only [List.length_nil, Nat.add_zero]
       have h1 := h.app
       rw [skipWs_nil (by decide) h1, h1.get]
@@ -347,8 +374,9 @@ theorem parseElems_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (xs : List Json) (
       have hb93 : (some b == some (93 : UInt8)) = false := by
         simpa using (valueHead_props hb).2.1
       simp only [hb93, Bool.false_eq_true, ↓reduceIte]
-      have IH := parseElems_ext o cfg (y :: ys) d e (bs := bs) (pos := pos + (printWith o d x).length + 1 + (o.nl d).length)
-        (rest := rest) (x :: acc) (by simp)
+      have IH := parseElems_ext o cfg (y :: ys) d e k (bs := bs) (start := start)
+        (pos := pos + (printWith o d x).length + 1 + (o.nl d).length)
+        (rest := rest) (x :: acc) (by omega) (by simp)
         (by simpa [printFirst, List.append_assoc] using h3)
         hfit.2
       try simp (config := { decide := true }) only [↓reduceIte]
@@ -357,25 +385,25 @@ theorem parseElems_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (xs : List Json) (
         List.length_append, List.length_cons]
       congr 2; omega
 
-theorem parseMembers_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (kvs : List (String × Json)) (d e : Nat) {bs : ByteArray}
-    {pos : Nat} {rest : List UInt8} (acc : List (String × Json)), kvs ≠ [] →
-    At bs pos (printFirstM o d kvs ++ o.nl e ++ [125]) rest →
-    Spec.FitsFields cfg kvs →
-    parseMembersAt cfg bs pos acc =
+theorem parseMembers_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (kvs : List (String × Json)) (d e k : Nat)
+    {bs : ByteArray} {start pos : Nat} {rest : List UInt8} (acc : List (String × Json)), start ≤ pos →
+    kvs ≠ [] → At bs pos (printFirstM o d kvs ++ o.nl e ++ [125]) rest →
+    Spec.FitsFields cfg k kvs →
+    parseMembersAt cfg bs k start pos acc =
       .ok (.obj (acc.reverse ++ kvs), pos + (printFirstM o d kvs ++ o.nl e ++ [125]).length)
-  | [], _, _, _, _, _, _, hne, _, _ => absurd rfl hne
-  | (k, v) :: kvs, d, e, bs, pos, rest, acc, _, h, hfit => by
+  | [], _, _, _, _, _, _, _, _, _, hne, _, _ => absurd rfl hne
+  | (key, v) :: kvs, d, e, k, bs, start, pos, rest, acc, hsp, _, h, hfit => by
     obtain ⟨cws, ecol, hcws⟩ := colon_eq o
     simp only [printFirstM, ecol, List.length_append, List.length_cons] at h ⊢
-    rw [parseMembersAt_eq]
-    have hk : At bs pos (printString o.ensureAscii k)
+    rw [parseMembersAt_eq _ _ _ _ _ _ hsp]
+    have hkey : At bs pos (printString o.ensureAscii key)
         (58 :: cws ++ printWith o d v ++ printMembers o d kvs ++ o.nl e ++ [125] ++ rest) := by
       unfold At at h ⊢; rw [h]; simp only [List.append_assoc, List.cons_append]
-    rw [parseString_printString_ext _ k hk]
+    rw [parseString_printString_ext _ key hkey]
     simp only
-    have h1 : At bs (pos + (printString o.ensureAscii k).length)
+    have h1 : At bs (pos + (printString o.ensureAscii key).length)
         (58 :: (cws ++ printWith o d v ++ printMembers o d kvs ++ o.nl e ++ [125])) rest :=
-      At.drop (by simpa [List.append_assoc] using hk)
+      At.drop (by simpa [List.append_assoc] using hkey)
     rw [skipWs_nil (by decide) h1, h1.get]
     simp only
     have hlen := List.length_pos_iff.mpr (printWith_ne_nil o d v)
@@ -387,11 +415,11 @@ theorem parseMembers_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (kvs : List (Str
         split
         · exact numStop_of_head (b := 125) (t := rest) rfl (by simp)
         · exact numStop_of_head (b := 10) rfl (by decide)
-      have hv : At bs (pos + (printString o.ensureAscii k).length + 1) (cws ++ printWith o d v)
+      have hv : At bs (pos + (printString o.ensureAscii key).length + 1) (cws ++ printWith o d v)
           (o.nl e ++ [125] ++ rest) := h1.next.re rfl (by simp)
-      rw [parseValue_ext o cfg v d hcws hv hns hfit.1]
+      rw [parseValue_ext o cfg v d k hcws hv hns hfit.1]
       simp only
-      have h2 : At bs (pos + (printString o.ensureAscii k).length + 1 + cws.length + (printWith o d v).length)
+      have h2 : At bs (pos + (printString o.ensureAscii key).length + 1 + cws.length + (printWith o d v).length)
           (o.nl e ++ [125]) rest :=
         (At.drop (hv.re rfl (by simp) (l' := cws ++ printWith o d v))).re (by simp; omega) rfl
       rw [at_ws_head (ws := o.nl e) h2 (wsList_nl o e) rfl (by decide)]
@@ -400,12 +428,12 @@ theorem parseMembers_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (kvs : List (Str
       omega
     | (k', v') :: kvs' =>
       simp only [printMembers, List.cons_append, List.append_assoc] at h1 ⊢
-      have hv : At bs (pos + (printString o.ensureAscii k).length + 1) (cws ++ printWith o d v)
+      have hv : At bs (pos + (printString o.ensureAscii key).length + 1) (cws ++ printWith o d v)
           (44 :: (o.nl d ++ (printFirstM o d ((k', v') :: kvs') ++ (o.nl e ++ ([125] ++ rest))))) :=
         h1.next.re rfl (by simp [printFirstM, ecol])
-      rw [parseValue_ext o cfg v d hcws hv (numStop_of_head rfl (by simp)) hfit.1]
+      rw [parseValue_ext o cfg v d k hcws hv (numStop_of_head rfl (by simp)) hfit.1]
       simp only
-      have h2 : At bs (pos + (printString o.ensureAscii k).length + 1 + cws.length + (printWith o d v).length)
+      have h2 : At bs (pos + (printString o.ensureAscii key).length + 1 + cws.length + (printWith o d v).length)
           (44 :: (o.nl d ++ printFirstM o d ((k', v') :: kvs') ++ o.nl e ++ [125])) rest :=
         (At.drop (hv.re rfl (by simp) (l' := cws ++ printWith o d v)
           (r' := (44 :: (o.nl d ++ printFirstM o d ((k', v') :: kvs') ++ o.nl e ++ [125])) ++ rest))).re
@@ -414,14 +442,14 @@ theorem parseMembers_ext (o : PrintOpts) (cfg : ParseCfg) : ∀ (kvs : List (Str
       simp only
       obtain ⟨t, et⟩ := printFirstM_head o d k' v' kvs'
       have h3 := h2.next
-      have h3' : At bs (pos + (printString o.ensureAscii k).length + 1 + cws.length + (printWith o d v).length + 1)
+      have h3' : At bs (pos + (printString o.ensureAscii key).length + 1 + cws.length + (printWith o d v).length + 1)
           (o.nl d ++ (34 :: t ++ o.nl e ++ [125])) rest := h3.re rfl (by simp [et])
       rw [at_ws_head h3' (wsList_nl o d) rfl (by decide)]
       have h4 := h3'.app
       rw [h4.get]
       simp only
-      have IH := parseMembers_ext o cfg ((k', v') :: kvs') d e (bs := bs) (rest := rest) ((k, v) :: acc)
-        (by simp) (h4.re rfl (by simp [et]))
+      have IH := parseMembers_ext o cfg ((k', v') :: kvs') d e k (bs := bs) (start := start) (rest := rest)
+        ((key, v) :: acc) (by omega) (by simp) (h4.re rfl (by simp [et]))
         hfit.2
       try simp (config := { decide := true }) only [↓reduceIte]
       rw [IH]

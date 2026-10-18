@@ -157,7 +157,22 @@ def cases : List Case := [
   err probe "whitespace only" "  " "EOF while parsing a value at line 1 column 2",
   err probe "trailing characters" "1 2" "trailing characters at line 1 column 3",
   err probe "trailing characters after object" "{\"a\":1}x" "trailing characters at line 1 column 8",
-  err probe "empty input" "" "EOF while parsing a value at line 1 column 0"
+  err probe "empty input" "" "EOF while parsing a value at line 1 column 0",
+  -- jiter's nesting limit: a value may sit inside at most 200 containers
+  ok probe "201 nested empty arrays" (rep '[' 201 ++ rep ']' 201) (rep '[' 201 ++ rep ']' 201),
+  err probe "202 nested arrays" (rep '[' 202 ++ rep ']' 202) "recursion limit exceeded at line 1 column 202",
+  err probe "100000 open brackets" (rep '[' 100000) "recursion limit exceeded at line 1 column 202",
+  err probe "201 open brackets" (rep '[' 201) "EOF while parsing a list at line 1 column 201",
+  err probe "scalar inside 201 arrays" (rep '[' 201 ++ "1" ++ rep ']' 201) "recursion limit exceeded at line 1 column 202",
+  ok probe "object inside 200 arrays" (rep '[' 200 ++ "{}" ++ rep ']' 200) (rep '[' 200 ++ "{}" ++ rep ']' 200),
+  err probe "value inside 201 objects" (String.join (List.replicate 201 "{\"a\":") ++ "1" ++ rep '}' 201)
+    "recursion limit exceeded at line 1 column 1006",
+  err probe "EOF where a deep value is due" (String.join (List.replicate 201 "{\"a\":"))
+    "EOF while parsing a value at line 1 column 1005",
+  err probe "spaced nesting" (String.join (List.replicate 202 " [") ++ rep ']' 202)
+    "recursion limit exceeded at line 1 column 404",
+  err probe "deep element after commas" (String.join (List.replicate 201 "[1,") ++ "2" ++ rep ']' 201)
+    "recursion limit exceeded at line 1 column 602"
 ]
 
 def main : IO UInt32 := do

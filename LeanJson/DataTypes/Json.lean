@@ -128,9 +128,8 @@ inductive ErrorKind where
   | trailingCharacters
   | unexpectedEndOfHexEscape
   | numberOutOfRange
-  /-- jiter's depth limit. Never reported here: the parser has no depth limit
-  (a documented deviation); the kind exists so error codes line up with
-  jiter's. -/
+  /-- jiter's nesting limit (`ParseCfg.maxDepth`): a value inside too many
+  containers. -/
   | recursionLimitExceeded
   deriving DecidableEq, Repr, Inhabited
 

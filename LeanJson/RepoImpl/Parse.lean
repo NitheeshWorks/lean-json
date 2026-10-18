@@ -67,11 +67,14 @@ theorem litStep {bs : ByteArray} {q : Nat} {lit : List UInt8} (v : Json) (hq : q
     exact ⟨(Adv.of_lt (Nat.le_succ q) hq).trans a, by have := a.1; simp; omega⟩
 
 mutual
-/-- A value at `pos` after optional whitespace. -/
-def parseValueWith (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) : Except ParseErr (Step bs pos Json) :=
+/-- A value at `pos` after optional whitespace, inside `depth` containers. -/
+def parseValueWith (cfg : ParseCfg) (bs : ByteArray) (depth pos : Nat) :
+    Except ParseErr (Step bs pos Json) :=
   let q := skipWs bs pos
   have hq : pos ≤ q := skipWs_ge bs pos
   if hqs : q < bs.size then
+    if cfg.depthOk depth = false then .error ⟨.recursionLimitExceeded, q⟩
+    else
     let b := bs[q]
     if b == 34 then
       (Step.lift (parseString bs q) (fun _ h => parseString_adv h)).map (·.cast .str hq)
@@ -80,14 +83,14 @@ def parseValueWith (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) : Except ParseE
       have hp : q + 1 ≤ p := skipWs_ge bs (q + 1)
       if hps : p < bs.size then
         if bs[p] == 93 then .ok ⟨.arr [], p + 1, by omega, by omega⟩
-        else (parseElems cfg bs p []).map (·.cast id (by omega))
+        else parseElems cfg bs (depth + 1) pos p (by omega) []
       else .error ⟨.eofWhileParsingList, p⟩
     else if b == 123 then
       let p := skipWs bs (q + 1)
       have hp : q + 1 ≤ p := skipWs_ge bs (q + 1)
       if hps : p < bs.size then
         if bs[p] == 125 then .ok ⟨.obj [], p + 1, by omega, by omega⟩
-        else if bs[p] == 34 then (parseMembers cfg bs p []).map (·.cast id (by omega))
+        else if bs[p] == 34 then parseMembers cfg bs (depth + 1) pos p (by omega) []
         else .error ⟨.keyMustBeAString, p⟩
       else .error ⟨.eofWhileParsingObject, p⟩
     else if b == 116 then
@@ -106,11 +109,12 @@ decreasing_by
     simp only [Prod.lex_def]
     simp only [q, p] at hq hqs hp hps ⊢
     omega
-/-- Array elements from `pos` (an element is due); `acc` holds the elements
-so far, reversed. -/
-def parseElems (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) (acc : List Json) :
-    Except ParseErr (Step bs pos Json) :=
-  match parseValueWith cfg bs pos with
+/-- Array elements from `pos` (an element is due, inside `depth` containers);
+`acc` holds the elements so far, reversed; the array opened at or before
+`start`. A tail-recursive loop, so a wide array uses constant stack. -/
+def parseElems (cfg : ParseCfg) (bs : ByteArray) (depth start pos : Nat) (hsp : start ≤ pos)
+    (acc : List Json) : Except ParseErr (Step bs start Json) :=
+  match parseValueWith cfg bs depth pos with
   | .error e => .error e
   | .ok s =>
     have hs : pos < s.next := s.lt
@@ -121,7 +125,7 @@ def parseElems (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) (acc : List Json) :
         let q := skipWs bs (p + 1)
         have hq : p + 1 ≤ q := skipWs_ge bs (p + 1)
         if bs[q]? == some 93 then .error ⟨.trailingComma, q⟩
-        else (parseElems cfg bs q (s.val :: acc)).map (·.cast id (by omega))
+        else parseElems cfg bs depth start q (by omega) (s.val :: acc)
       else if bs[p] == 93 then .ok ⟨.arr (s.val :: acc).reverse, p + 1, by omega, by omega⟩
       else .error ⟨.expectedListCommaOrEnd, p⟩
     else .error ⟨.eofWhileParsingList, p⟩
@@ -131,10 +135,11 @@ decreasing_by
   · simp
   · simp only [p, q] at hp hq hs hps ⊢
     omega
-/-- Object members from `pos` (which holds the opening quote of a key);
-`acc` holds the members so far, reversed. -/
-def parseMembers (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) (acc : List (String × Json)) :
-    Except ParseErr (Step bs pos Json) :=
+/-- Object members from `pos` (which holds the opening quote of a key), inside
+`depth` containers; `acc` holds the members so far, reversed; the object
+opened at or before `start`. Tail-recursive. -/
+def parseMembers (cfg : ParseCfg) (bs : ByteArray) (depth start pos : Nat) (hsp : start ≤ pos)
+    (acc : List (String × Json)) : Except ParseErr (Step bs start Json) :=
   match Step.lift (parseString bs pos) (fun _ h => parseString_adv h) with
   | .error e => .error e
   | .ok k =>
@@ -143,7 +148,7 @@ def parseMembers (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) (acc : List (Stri
     have hp : k.next ≤ p := skipWs_ge bs k.next
     if hps : p < bs.size then
       if bs[p] == 58 then
-        match parseValueWith cfg bs (p + 1) with
+        match parseValueWith cfg bs depth (p + 1) with
         | .error e => .error e
         | .ok s =>
           have hs : p + 1 < s.next := s.lt
@@ -154,8 +159,7 @@ def parseMembers (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) (acc : List (Stri
               let q := skipWs bs (p3 + 1)
               have hq : p3 + 1 ≤ q := skipWs_ge bs (p3 + 1)
               if hqs : q < bs.size then
-                if bs[q] == 34 then
-                  (parseMembers cfg bs q ((k.val, s.val) :: acc)).map (·.cast id (by omega))
+                if bs[q] == 34 then parseMembers cfg bs depth start q (by omega) ((k.val, s.val) :: acc)
                 else if bs[q] == 125 then .error ⟨.trailingComma, q⟩
                 else .error ⟨.keyMustBeAString, q⟩
               else .error ⟨.eofWhileParsingValue, q⟩
@@ -176,7 +180,7 @@ end
 
 /-- The value parser with its progress forgotten: value and end position. -/
 def parseValueAt (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) : Except ParseErr (Json × Nat) :=
-  (parseValueWith cfg bs pos).map Step.out
+  (parseValueWith cfg bs 0 pos).map Step.out
 
 /-- The value parser with jiter's default limits. -/
 def parseValue (bs : ByteArray) (pos : Nat) : Except ParseErr (Json × Nat) := parseValueAt {} bs pos

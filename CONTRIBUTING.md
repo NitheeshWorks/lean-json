@@ -58,6 +58,7 @@ be a Hoare triple over a heap.
 | `RepoImpl/Step.lean` | progress of every lexical production (`Adv`), used by the parser's types |
 | `Proofs/Unfold.lean` | the parser's equations with progress proofs erased (`parseValueAt_eq`, …), via two `Step` lemmas |
 | `Proofs/Codec.lean` | the `Codec` theory (`decode_encode`, `encode_injective`), its instances, `parse_print`, `print_injective`, `parse_canonical`, config relaxation |
+| `Proofs/Depth.lean` | `parse_height` (the depth bound), `fits_default` (the round trip's side condition in plain terms) |
 | `Proofs/Compact.lean` | `print_compact` |
 | `Proofs/Builder.lean` | `printBA_eq`: the linear printer equals the specification |
 | `Proofs/Verified.lean` | `VerifiedJson`, one field per headline specification |
@@ -146,9 +147,21 @@ gives Python `dict` semantics (first position, last value).
   as upstream does (UP-026, pydantic/jiter#120).
 * **NaN / Infinity** are not representable and are rejected by the parser.
   Deviation: `from_json` accepts them by default (`allow_inf_nan=True`).
-* **No recursion limit.** jiter stops at depth 200; this parser is total by
-  well-founded recursion on the input and has no depth limit, so
-  `recursion limit exceeded` is never reported. Deviation.
+* **Nesting limit, as jiter.** A value inside 201 containers is `recursion
+  limit exceeded` at the value's offset (so 201 nested empty containers
+  parse, and `[` × 202 fails at column 202). `ParseCfg.maxDepth` (default
+  `some 201`) is checked inside the parser, and `parse_height` proves no
+  returned value has `height` 201 or more. The element and member loops are
+  tail calls, so neither nesting nor width can exhaust the stack (a 20 MB
+  array of 10^7 elements, or 10^7 brackets, is handled; `lake exe wide`).
+* **`ParseCfg.lossless` is not for untrusted input.** It lifts both limits so
+  that `parseLossless_print` needs no side condition; without the depth limit
+  the parser's stack grows with the input's nesting.
+* **Printer recursion.** `to_json` recurses once per level of nesting
+  (`Json.height`); element lists are a loop. Values from `from_json` have
+  height at most 200. A value built in Lean nested hundreds of thousands of
+  levels deep can exhaust the stack when printed (or compared); that is out of
+  scope, as it is for any recursive function over such a value.
 * **Error messages** use jiter's texts and its line/column convention
   (`EOF while parsing a string at line 1 column 7`).
 

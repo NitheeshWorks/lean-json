@@ -30,9 +30,12 @@ structure VerifiedJson where
   stepProgress : ∀ cfg, StepProgress (parse cfg)
   /-- Compact output has no layout whitespace. -/
   compact : Compact printBytes
-  /-- `parse (print j) = .ok j`, for every value within the default limits. -/
-  parsePrint : ∀ (j : Json) (o : PrintOpts), Fits {} j →
+  /-- `parse (print j) = .ok j`, for every value within the default limits:
+  integers within 4300 bytes, height at most 200. -/
+  parsePrint : ∀ (j : Json) (o : PrintOpts), IntsFit j → j.height ≤ 200 →
     parseDocument (print o 0 j).toByteArray = .ok j
+  /-- The default parser never returns a value deeper than its limit. -/
+  depthBound : ∀ (bs : ByteArray) (v : Json), parseDocument bs = .ok v → v.height ≤ 200
 
 /-- The JSON layer, verified. -/
 def theVerifiedJson : VerifiedJson where
@@ -42,6 +45,7 @@ def theVerifiedJson : VerifiedJson where
   printInjective := print_injective_spec
   stepProgress := step_progress
   compact := print_compact_spec
-  parsePrint j o h := parse_print j o h
+  parsePrint j o hi hd := parse_print j o (fits_default hi hd)
+  depthBound _ _ h := parseDocument_height h
 
 end LeanJson

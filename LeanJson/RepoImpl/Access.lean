@@ -91,6 +91,22 @@ key's first position, with its last value. -/
 def dedupKeys (kvs : List (String × Json)) : List (String × Json) :=
   kvs.foldl (fun acc kv => insertLast kv.1 kv.2 acc) []
 
+mutual
+/-- How many containers deep the deepest value inside `j` sits: `0` for a
+scalar or an empty container, one more than the deepest child otherwise.
+jiter (and `from_json`) accepts exactly the documents with `height ≤ 200`. -/
+def height : Json → Nat
+  | .arr (x :: xs) => 1 + max x.height (heightList xs)
+  | .obj ((_, v) :: kvs) => 1 + max v.height (heightFields kvs)
+  | _ => 0
+def heightList : List Json → Nat
+  | [] => 0
+  | x :: xs => max x.height (heightList xs)
+def heightFields : List (String × Json) → Nat
+  | [] => 0
+  | (_, v) :: kvs => max v.height (heightFields kvs)
+end
+
 end Json
 
 namespace Number

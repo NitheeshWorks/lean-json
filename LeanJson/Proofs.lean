@@ -5,6 +5,7 @@ import LeanJson.Proofs.String
 import LeanJson.Proofs.Value
 import LeanJson.Proofs.Unfold
 import LeanJson.Proofs.Codec
+import LeanJson.Proofs.Depth
 import LeanJson.Proofs.Compact
 import LeanJson.Proofs.Builder
 import LeanJson.Proofs.Verified

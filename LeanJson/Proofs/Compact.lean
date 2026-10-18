@@ -1,4 +1,4 @@
-import LeanJson.Proofs.Codec
+import LeanJson.Proofs.Depth
 
 /-!
 # Proofs: the compact form has no layout whitespace

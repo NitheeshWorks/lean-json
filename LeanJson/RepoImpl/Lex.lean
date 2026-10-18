@@ -123,10 +123,23 @@ literal is `number out of range`. `none` lifts the limit (the lossless
 parser the round-trip theorems are stated for). -/
 structure ParseCfg where
   maxIntLen : Option Nat := some 4300
+  /-- jiter's nesting limit: a value may sit inside at most `maxDepth - 1`
+  containers (201 means 201 nested containers parse, provided the innermost
+  is empty; a value inside 201 containers is `recursion limit exceeded`).
+  `none` lifts it: then the parser's stack use grows with the input's
+  nesting, so it is not for untrusted input. -/
+  maxDepth : Option Nat := some 201
   deriving DecidableEq, Repr, Inhabited
 
-/-- The configuration with no limits. -/
-def ParseCfg.lossless : ParseCfg := { maxIntLen := none }
+/-- The configuration with no limits. Not for untrusted input: without a depth
+limit, deeply nested input can exhaust the stack. -/
+def ParseCfg.lossless : ParseCfg := { maxIntLen := none, maxDepth := none }
+
+/-- Whether a value may be parsed inside `d` containers. -/
+def ParseCfg.depthOk (cfg : ParseCfg) (d : Nat) : Bool :=
+  match cfg.maxDepth with
+  | none => true
+  | some L => d < L
 
 /-- Whether an integer part spanning `n` bytes (sign included) is allowed. -/
 def ParseCfg.intLenOk (cfg : ParseCfg) (n : Nat) : Bool :=

@@ -153,12 +153,12 @@ test = ["tests/Conformance.lean::Infinity is rejected (deviation)"]
 
 [[requirement]]
 id = "recursion_limit"
-upstream = "jiter recursion limit (200 levels)"
-title = "No nesting depth limit: the parser is total by fuel and linear in depth; upstream reports 'recursion limit exceeded' past 200 levels"
-status = "deviation"
-realises = ["LeanJson.parseValueWith", "LeanJson.Step"]
-theorem = ["LeanJson.step_progress"]
-test = ["tests/Props.lean::random bytes: errors in bounds, never a recursion-limit error"]
+upstream = "jiter recursion limit (pydantic-core 2.50.1 from_json)"
+title = "jiter's nesting limit: a value inside 201 containers is 'recursion limit exceeded' at its offset (201 nested empty containers parse); enforced inside the parser (ParseCfg.maxDepth); element and member loops are tail-recursive, so neither depth nor width can exhaust the stack"
+status = "implemented"
+realises = ["LeanJson.ParseCfg.maxDepth", "LeanJson.ParseCfg.depthOk", "LeanJson.ErrorKind.recursionLimitExceeded", "LeanJson.parseValueWith", "LeanJson.parseElems"]
+theorem = ["LeanJson.parse_height", "LeanJson.parseDocument_height", "LeanJson.fits_default", "LeanJson.from_json_to_json"]
+test = ["tests/Conformance.lean::202 nested arrays", "tests/Conformance.lean::100000 open brackets", "tests/Props.lean::random nesting: depth ≤ 200 parses, deeper is recursion limit exceeded"]
 
 [[requirement]]
 id = "errors.offsets"
@@ -193,5 +193,5 @@ upstream = "jiter (total parsing)"
 title = "Parser is total with no fuel: each production returns a Step (progress in its type), recursion is well founded on the remaining input"
 status = "implemented"
 realises = ["LeanJson.parseValueWith", "LeanJson.Step", "LeanJson.Step.lift", "LeanJson.skipWs", "LeanJson.parseStrBody"]
-theorem = ["LeanJson.step_progress", "LeanJson.parseValueAt_progress", "LeanJson.parseValueAt_eq"]
-test = ["tests/Props.lean::random bytes: errors in bounds, never a recursion-limit error"]
+theorem = ["LeanJson.step_progress", "LeanJson.parseValueAt_progress", "LeanJson.parseValueAtD_eq"]
+test = ["tests/Props.lean::random bytes: errors in bounds, results within the depth limit"]

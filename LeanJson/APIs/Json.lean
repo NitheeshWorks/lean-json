@@ -36,6 +36,7 @@ theorem parsed_of_ref {bs : ByteArray} {v : Json} (h : parseDocument bs = .ok v)
   ref := h
   reprint o := parseLossless_print v o
   canonical _ _ hw := parse_canonical h hw
+  height := parseDocument_height h
 
 /-- Parse a whole JSON document (`from_json`): optional whitespace, one
 value, optional whitespace, end of input. Errors carry jiter's kind, byte
@@ -78,12 +79,14 @@ def parseAt (bs : ByteArray) (pos : Nat) :
 theorem printed (o : PrintOpts) (v : Json) : Printed o v (printWith o 0 v).toByteArray where
   bytes := by simp
   roundTrip := parseLossless_print v o
-  roundTripDefault h := parse_print v o h
+  roundTripDefault hi hd := parse_print v o (fits_default hi hd)
   compact ho := by simpa using print_compact o ho v
 
 /-- Print a value. The default options give the compact form. Built byte
 by byte (`printBA`, linear in the output), proved equal to the specification
-`printWith`. -/
+`printWith`. It recurses once per level of nesting (`Json.height`), so a value
+built in Lean hundreds of thousands of levels deep can exhaust the stack;
+values from `from_json` are at most 200 deep. -/
 def print (v : Json) (o : PrintOpts := {}) : {b : ByteArray // Printed o v b} :=
   ⟨printBA o v, printBA_eq o v ▸ printed o v⟩
 
@@ -102,10 +105,13 @@ theorem parse_val {bs : ByteArray} {v : Json} (h : parseDocument bs = .ok v) :
   · rename_i e he; rw [h] at he; cases he
 
 /-- **`from_json (to_json j) = j`**, under every `indent` and `ensure_ascii`,
-for every value whose integers fit jiter's 4300-byte limit. -/
+for every value whose integers fit jiter's 4300-byte limit and whose height
+is at most 200 (jiter's 201-level nesting limit). Both conditions are
+necessary: upstream rejects longer integer literals and deeper nesting. -/
 theorem from_json_to_json (j : Json) (indent : Option Nat := none) (ensure_ascii : Bool := false)
-    (h : Fits {} j) : (from_json (to_json j indent ensure_ascii).val).map (·.val) = .ok j :=
-  parse_val ((to_json j indent ensure_ascii).property.roundTripDefault h)
+    (hint : IntsFit j) (hdepth : j.height ≤ 200) :
+    (from_json (to_json j indent ensure_ascii).val).map (·.val) = .ok j :=
+  parse_val ((to_json j indent ensure_ascii).property.roundTripDefault hint hdepth)
 
 /-- **`to_json` is injective**, under every `indent` and `ensure_ascii`. -/
 theorem to_json_injective (indent : Option Nat := none) (ensure_ascii : Bool := false) :

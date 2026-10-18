@@ -67,8 +67,13 @@ beyond Lean's `propext`, `Quot.sound`, `Classical.choice`.
 
 * **`from_json (to_json j) = j`.** `from_json_to_json`, under every `indent`
   and `ensure_ascii`, for every value whose integers fit jiter's 4300-byte
-  limit (upstream rejects longer integer literals, so the condition is
-  necessary). `to_json_injective`: distinct values print differently.
+  limit and whose `height` is at most 200 (jiter's nesting limit). Upstream
+  rejects longer integer literals and deeper nesting, so both conditions are
+  necessary. `to_json_injective`: distinct values print differently.
+* **The depth bound.** `parse_height`: under `maxDepth = some L` no returned
+  value has height `L` or more; `parseDocument_height`: `from_json` never
+  returns anything deeper than 200, so hostile nesting is rejected (at jiter's
+  column), and wide input runs in constant stack.
 * **Round trip, low level.** `parse_print`: for every value whose integers fit jiter's
   4300-byte limit, under every print option (compact, indented, ASCII-only),
   `parseDocument (printWith o 0 j).toByteArray = .ok j`. Without the limit
@@ -103,7 +108,6 @@ error offsets, the `Lean.Json` bridge, `json%`) is listed with reasons in
   the parser rejects them (`from_json` accepts them by default).
 * Floats are kept as exact decimals; `Number.toFloat` rounds on demand
   (upstream rounds at parse time, so `1e400` becomes `inf`).
-* No nesting-depth limit (jiter stops at 200); parsing is total and linear.
 * `allow_partial` and `cache_strings` are not implemented.
 
 ## Getting started

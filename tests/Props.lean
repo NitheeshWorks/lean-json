@@ -158,7 +158,7 @@ def properties : List Property := [
       let order := keys == (kvs.map (·.1)).eraseDups
       (if distinct && same && order then none else some s!"{v}", r)
     | _ => (none, r)⟩,
-  ⟨"random bytes: errors in bounds, never a recursion-limit error", fun r => Id.run do
+  ⟨"random bytes: errors in bounds, results within the depth limit", fun r => Id.run do
     let (len, r0) := r.nat 24
     let mut g := r0
     let mut bs : ByteArray := .empty
@@ -167,10 +167,19 @@ def properties : List Property := [
       g := g'
       bs := bs.push (UInt8.ofNat b)
     match parse bs with
-    | .ok _ => (none, g)
+    | .ok v => (if v.val.height ≤ 200 then none else some s!"{bs.data}: too deep", g)
     | .error e =>
-      (if e.offset ≤ bs.size && e.kind != .recursionLimitExceeded then none
-       else some s!"{bs.data}: {e.description}", g)⟩,
+      (if e.offset ≤ bs.size then none else some s!"{bs.data}: {e.description}", g)⟩,
+  ⟨"random nesting: depth ≤ 200 parses, deeper is recursion limit exceeded", fun r =>
+    let (n, r) := r.nat 260
+    let (scalar, r) := r.nat 2
+    let inner := if scalar = 1 then "1" else ""
+    let s := String.join (List.replicate n "[") ++ inner ++ String.join (List.replicate n "]")
+    let deep := if scalar = 1 then n ≥ 201 else n ≥ 202
+    match from_json s with
+    | .ok v => (if !deep && v.val.height ≤ 200 then none else some s!"depth {n} accepted", r)
+    | .error e =>
+      (if deep && e.kind == .recursionLimitExceeded then none else some s!"depth {n}: {e.description}", r)⟩,
   ⟨"Lean.Json bridge: ofLean (toLean v) = v on its common fragment", fun r =>
     let (n, r) := r.nat 1000
     let (s, r) := genString r

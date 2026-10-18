@@ -26,20 +26,28 @@ def NumStop (rest : List UInt8) : Prop :=
   ∀ b, rest.head? = some b → isDigit b = false ∧ b ≠ 46 ∧ b ≠ 101 ∧ b ≠ 69
 
 mutual
-/-- Every number in `v` is within `cfg`'s limits (always true for
-`ParseCfg.lossless`). -/
-def Fits (cfg : ParseCfg) : Json → Prop
-  | .num n => cfg.intLenOk n.intLen = true
-  | .arr xs => FitsList cfg xs
-  | .obj kvs => FitsFields cfg kvs
-  | _ => True
-def FitsList (cfg : ParseCfg) : List Json → Prop
+/-- `v`, sitting inside `d` containers, is within `cfg`'s limits: every
+number's integer part fits `maxIntLen`, and every value (scalar or
+container) sits inside fewer than `maxDepth` containers. Always true for
+`ParseCfg.lossless`. -/
+def FitsAt (cfg : ParseCfg) (d : Nat) : Json → Prop
+  | .num n => cfg.depthOk d = true ∧ cfg.intLenOk n.intLen = true
+  | .arr xs => cfg.depthOk d = true ∧ FitsList cfg (d + 1) xs
+  | .obj kvs => cfg.depthOk d = true ∧ FitsFields cfg (d + 1) kvs
+  | _ => cfg.depthOk d = true
+def FitsList (cfg : ParseCfg) (d : Nat) : List Json → Prop
   | [] => True
-  | x :: xs => Fits cfg x ∧ FitsList cfg xs
-def FitsFields (cfg : ParseCfg) : List (String × Json) → Prop
+  | x :: xs => FitsAt cfg d x ∧ FitsList cfg d xs
+def FitsFields (cfg : ParseCfg) (d : Nat) : List (String × Json) → Prop
   | [] => True
-  | (_, v) :: kvs => Fits cfg v ∧ FitsFields cfg kvs
+  | (_, v) :: kvs => FitsAt cfg d v ∧ FitsFields cfg d kvs
 end
+
+/-- A top-level value within `cfg`'s limits. -/
+def Fits (cfg : ParseCfg) (v : Json) : Prop := FitsAt cfg 0 v
+
+/-- Every integer in `j` is within jiter's 4300-byte limit (depth aside). -/
+def IntsFit (j : Json) : Prop := Fits { maxDepth := none } j
 
 /-- The signature of a value parser: buffer and cursor in; value and end
 position out. -/
@@ -112,6 +120,8 @@ structure Parsed (bs : ByteArray) (v : Json) : Prop where
   /-- If the input is the printing of some value `w` (any options), then `w`
   is what was read: canonical input re-prints to exactly the input. -/
   canonical : ∀ (o : PrintOpts) (w : Json), printWith o 0 w = bs.data.toList → w = v
+  /-- Nothing nested deeper than jiter's limit is returned. -/
+  height : v.height ≤ 200
 
 /-- What a successful prefix parse of `bs` from `pos` guarantees about its
 result `r = (value, end position)`. -/
@@ -133,8 +143,9 @@ structure Printed (o : PrintOpts) (v : Json) (b : ByteArray) : Prop where
   /-- The lossless parser reads `b` back as `v`. -/
   roundTrip : parseDocumentWith .lossless b = .ok v
   /-- So does the default (`from_json`) parser, when every integer in `v` is
-  within its 4300-byte limit. -/
-  roundTripDefault : Fits {} v → parseDocument b = .ok v
+  within its 4300-byte limit and `v` is nested no deeper than its 201-level
+  limit allows. -/
+  roundTripDefault : IntsFit v → v.height ≤ 200 → parseDocument b = .ok v
   /-- Compact options give no layout whitespace: no tab, LF or CR byte, and a
   space only inside a string that has one. -/
   compact : o.indent = none → (9 : UInt8) ∉ b.data.toList ∧ (10 : UInt8) ∉ b.data.toList ∧

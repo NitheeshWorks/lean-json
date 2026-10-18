@@ -76,24 +76,26 @@ def valueCodec (cfg : ParseCfg) (o : PrintOpts) (d : Nat) : Codec Json where
   Valid := Fits cfg
   Stop := NumStop
   law v bs pos rest hv h hr := by
-    have := parseValue_ext o cfg v d (ws := []) wsList_nil (by simpa using h) hr hv
-    simpa using this
+    have := parseValue_ext o cfg v d 0 (ws := []) wsList_nil (by simpa using h) hr hv
+    simpa [parseValueAt_zero] using this
 
 theorem numStop_nil : NumStop [] := by intro b hb; cases hb
 
 mutual
-theorem fits_lossless : ∀ v : Json, Fits .lossless v
-  | .null | .bool _ | .str _ => trivial
-  | .num _ => rfl
-  | .arr xs => fitsList_lossless xs
-  | .obj kvs => fitsFields_lossless kvs
-theorem fitsList_lossless : ∀ xs : List Json, FitsList .lossless xs
-  | [] => trivial
-  | x :: xs => ⟨fits_lossless x, fitsList_lossless xs⟩
-theorem fitsFields_lossless : ∀ kvs : List (String × Json), FitsFields .lossless kvs
-  | [] => trivial
-  | (_, v) :: kvs => ⟨fits_lossless v, fitsFields_lossless kvs⟩
+theorem fitsAt_lossless : ∀ (k : Nat) (v : Json), FitsAt .lossless k v
+  | _, .null | _, .bool _ | _, .str _ => rfl
+  | _, .num _ => ⟨rfl, rfl⟩
+  | k, .arr xs => ⟨rfl, fitsList_lossless (k + 1) xs⟩
+  | k, .obj kvs => ⟨rfl, fitsFields_lossless (k + 1) kvs⟩
+theorem fitsList_lossless : ∀ (k : Nat) (xs : List Json), FitsList .lossless k xs
+  | _, [] => trivial
+  | k, x :: xs => ⟨fitsAt_lossless k x, fitsList_lossless k xs⟩
+theorem fitsFields_lossless : ∀ (k : Nat) (kvs : List (String × Json)), FitsFields .lossless k kvs
+  | _, [] => trivial
+  | k, (_, v) :: kvs => ⟨fitsAt_lossless k v, fitsFields_lossless k kvs⟩
 end
+
+theorem fits_lossless (v : Json) : Fits .lossless v := fitsAt_lossless 0 v
 
 /-- **Round trip on any continuation**, the `_ext` form: for the lossless
 parser, every value under every print option. -/
@@ -152,30 +154,41 @@ theorem parseNumber_relax {cfg : ParseCfg} {bs : ByteArray} {pos : Nat} {r : Num
 
 /-- The value parser's answer under `cfg`, if successful, is the lossless one. -/
 def RelaxV (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) : Prop :=
-  ∀ r, parseValueAt cfg bs pos = .ok r → parseValueAt .lossless bs pos = .ok r
+  ∀ k r, parseValueAtD cfg bs k pos = .ok r → parseValueAtD .lossless bs k pos = .ok r
 def RelaxE (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) : Prop :=
-  ∀ acc r, parseElemsAt cfg bs pos acc = .ok r → parseElemsAt .lossless bs pos acc = .ok r
+  ∀ k start acc r, start ≤ pos → parseElemsAt cfg bs k start pos acc = .ok r →
+    parseElemsAt .lossless bs k start pos acc = .ok r
 def RelaxM (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) : Prop :=
-  ∀ acc r, parseMembersAt cfg bs pos acc = .ok r → parseMembersAt .lossless bs pos acc = .ok r
+  ∀ k start acc r, start ≤ pos → parseMembersAt cfg bs k start pos acc = .ok r →
+    parseMembersAt .lossless bs k start pos acc = .ok r
 
-theorem parseValueAt_progress {cfg : ParseCfg} {bs : ByteArray} {pos : Nat} {r : Json × Nat}
-    (h : parseValueAt cfg bs pos = .ok r) : pos < r.2 ∧ r.2 ≤ bs.size := by
-  unfold parseValueAt at h
-  cases hv : parseValueWith cfg bs pos with
+theorem parseValueAtD_progress {cfg : ParseCfg} {bs : ByteArray} {k pos : Nat} {r : Json × Nat}
+    (h : parseValueAtD cfg bs k pos = .ok r) : pos < r.2 ∧ r.2 ≤ bs.size := by
+  unfold parseValueAtD at h
+  cases hv : parseValueWith cfg bs k pos with
   | error e => rw [hv] at h; cases h
   | ok s => rw [hv] at h; cases h; exact ⟨s.lt, s.le⟩
+
+theorem parseValueAt_progress {cfg : ParseCfg} {bs : ByteArray} {pos : Nat} {r : Json × Nat}
+    (h : parseValueAt cfg bs pos = .ok r) : pos < r.2 ∧ r.2 ≤ bs.size := parseValueAtD_progress h
+
+theorem lossless_depthOk (k : Nat) : ParseCfg.lossless.depthOk k = true := rfl
 
 theorem relaxV_step (cfg : ParseCfg) (bs : ByteArray) (pos : Nat)
     (IHe : ∀ p, bs.size - p < bs.size - pos → RelaxE cfg bs p)
     (IHm : ∀ p, bs.size - p < bs.size - pos → RelaxM cfg bs p) : RelaxV cfg bs pos := by
-  intro r h
-  rw [parseValueAt_eq] at h ⊢
+  intro k r h
+  rw [parseValueAtD_eq] at h ⊢
   have g0 := skipWs_ge bs pos
   have g1 := skipWs_ge bs (skipWs bs pos + 1)
   split at h
   · rename_i hb; (try rw [hb]); exact h
   rename_i b hb
   (try rw [hb]); try simp only
+  by_cases hd : cfg.depthOk k = false
+  · rw [ite_eq_left hd] at h; cases h
+  rw [ite_eq_right hd] at h
+  rw [lossless_depthOk]; simp only [Bool.true_eq_false, ↓reduceIte]
   by_cases c34 : (b == 34) = true
   · rw [ite_eq_left c34] at h ⊢; exact h
   rw [ite_eq_right c34] at h ⊢
@@ -188,7 +201,7 @@ theorem relaxV_step (cfg : ParseCfg) (bs : ByteArray) (pos : Nat)
       have := lt_size_of_get hp
       split at h
       · rename_i e; rw [ite_eq_left e]; exact h
-      · rename_i e; rw [ite_eq_right e]; exact IHe _ (by omega) [] r h
+      · rename_i e; rw [ite_eq_right e]; exact IHe _ (by omega) _ _ [] r (by omega) h
   rw [ite_eq_right c91] at h ⊢
   by_cases c123 : (b == 123) = true
   · rw [ite_eq_left c123] at h ⊢
@@ -201,7 +214,7 @@ theorem relaxV_step (cfg : ParseCfg) (bs : ByteArray) (pos : Nat)
       · rename_i e; rw [ite_eq_left e]; exact h
       · rename_i e; rw [ite_eq_right e]
         split at h
-        · rename_i e2; rw [ite_eq_left e2]; exact IHm _ (by omega) [] r h
+        · rename_i e2; rw [ite_eq_left e2]; exact IHm _ (by omega) _ _ [] r (by omega) h
         · rename_i e2; rw [ite_eq_right e2]; exact h
   rw [ite_eq_right c123] at h ⊢
   by_cases c116 : (b == 116) = true
@@ -223,13 +236,13 @@ theorem relaxV_step (cfg : ParseCfg) (bs : ByteArray) (pos : Nat)
 
 theorem relaxE_step (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) (hV : RelaxV cfg bs pos)
     (IHe : ∀ p, bs.size - p < bs.size - pos → RelaxE cfg bs p) : RelaxE cfg bs pos := by
-  intro acc r h
-  rw [parseElemsAt_eq] at h ⊢
+  intro k start acc r hsp h
+  rw [parseElemsAt_eq _ _ _ _ _ _ hsp] at h ⊢
   split at h
   · cases h
   · rename_i v p1 hv
-    have pr := parseValueAt_progress hv
-    rw [hV _ hv]
+    have pr := parseValueAtD_progress hv
+    rw [hV _ _ hv]
     simp only
     have g1 := skipWs_ge bs p1
     have g2 := skipWs_ge bs (skipWs bs p1 + 1)
@@ -241,17 +254,18 @@ theorem relaxE_step (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) (hV : RelaxV c
       · rename_i e; rw [ite_eq_left e]
         split at h
         · rename_i e2; rw [ite_eq_left e2]; exact h
-        · rename_i e2; rw [ite_eq_right e2]; exact IHe _ (by simp at pr; omega) _ r h
+        · rename_i e2; rw [ite_eq_right e2]
+          exact IHe _ (by simp at pr; omega) _ _ _ r (by simp at pr; omega) h
       · rename_i e; rw [ite_eq_right e]; exact h
 
 theorem relaxM_step (cfg : ParseCfg) (bs : ByteArray) (pos : Nat)
     (IHv : ∀ p, bs.size - p < bs.size - pos → RelaxV cfg bs p)
     (IHm : ∀ p, bs.size - p < bs.size - pos → RelaxM cfg bs p) : RelaxM cfg bs pos := by
-  intro acc r h
-  rw [parseMembersAt_eq] at h ⊢
+  intro k start acc r hsp h
+  rw [parseMembersAt_eq _ _ _ _ _ _ hsp] at h ⊢
   split at h
   · cases h
-  · rename_i k p1 hk
+  · rename_i key p1 hk
     have pk := (parseString_adv hk).2
     (try rw [hk]); try simp only
     have g1 := skipWs_ge bs p1
@@ -265,8 +279,8 @@ theorem relaxM_step (cfg : ParseCfg) (bs : ByteArray) (pos : Nat)
         split at h
         · cases h
         · rename_i v p2 hv
-          have pr := parseValueAt_progress hv
-          rw [IHv _ (by omega) _ hv]
+          have pr := parseValueAtD_progress hv
+          rw [IHv _ (by omega) _ _ hv]
           simp only
           have g2 := skipWs_ge bs p2
           have g3 := skipWs_ge bs (skipWs bs p2 + 1)
@@ -283,7 +297,7 @@ theorem relaxM_step (cfg : ParseCfg) (bs : ByteArray) (pos : Nat)
                 have hqs := lt_size_of_get he
                 split at h
                 · rename_i e4; rw [ite_eq_left e4]
-                  exact IHm _ (by simp at pr; omega) _ r h
+                  exact IHm _ (by simp at pr; omega) _ _ _ r (by simp at pr; omega) h
                 · rename_i e4; rw [ite_eq_right e4]; exact h
             · rename_i e3; rw [ite_eq_right e3]; exact h
       · rename_i e; rw [ite_eq_right e]; exact h
@@ -309,7 +323,7 @@ theorem relax_all (cfg : ParseCfg) (bs : ByteArray) :
 
 theorem parseValue_relax (cfg : ParseCfg) (bs : ByteArray) (pos : Nat) (r : Json × Nat)
     (h : parseValueAt cfg bs pos = .ok r) : parseValueAt .lossless bs pos = .ok r :=
-  (relax_all cfg bs _ pos (Nat.le_refl _)).1 r h
+  (relax_all cfg bs _ pos (Nat.le_refl _)).1 0 r h
 
 /-- **Step progress**: every successful value parse consumes at least one byte
 and ends within the buffer. It is the `Step` type of the parser, read back. -/

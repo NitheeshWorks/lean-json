@@ -28,3 +28,8 @@ root = "tests.Perf"
 [[lean_exe]]
 name = "quickstart"
 root = "examples.Quickstart"
+
+# Wide-input stack probe (not part of the gate): `lake exe wide [n]`.
+[[lean_exe]]
+name = "wide"
+root = "tests.Wide"
