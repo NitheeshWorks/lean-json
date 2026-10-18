@@ -45,7 +45,7 @@ def natDigits (n : Nat) : List Nat := digitsDC 64 n
 def digitByte (d : Nat) : UInt8 := UInt8.ofNat (48 + d)
 
 /-- Is this byte an ASCII decimal digit? -/
-def isDigit (b : UInt8) : Bool := 48 ≤ b && b ≤ 57
+@[inline] def isDigit (b : UInt8) : Bool := 48 ≤ b && b ≤ 57
 
 /-- The lowercase ASCII hex digit for `d < 16` (serde_json writes lowercase). -/
 def hexByte (d : Nat) : UInt8 := if d < 10 then UInt8.ofNat (48 + d) else UInt8.ofNat (87 + d)

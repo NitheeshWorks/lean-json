@@ -58,7 +58,7 @@ decreasing_by
     | (have := Char.utf8Size_pos c; omega)
 
 /-- A string literal whose opening quote is at `pos`. -/
-@[specialize] def parseString (get : Nat → Option UInt8) (n pos : Nat) : Except ParseErr (String × Nat) :=
+@[inline] def parseString (get : Nat → Option UInt8) (n pos : Nat) : Except ParseErr (String × Nat) :=
   parseStrBody get n (pos + 1) ""
 
 end LeanJson

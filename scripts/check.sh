@@ -31,6 +31,9 @@ lake exe bench flat 20
 lake exe bench keys 60
 lake exe bench strings 20
 lake exe bench e2e 20
+lake exe bench wide 2 1000
+lake exe bench wide 20 15000
+lake exe bench dups 20 5000
 
 if [[ "${1:-}" == "--pbt" ]]; then
   echo "== plausible =="

@@ -24,7 +24,7 @@ and `Fields`, an object under construction with `dict` key collapsing.
 namespace LeanJson
 
 /-- JSON whitespace: space, tab, line feed, carriage return. -/
-def isWs (b : UInt8) : Bool := b == 32 || b == 9 || b == 10 || b == 13
+@[inline] def isWs (b : UInt8) : Bool := b == 32 || b == 9 || b == 10 || b == 13
 
 /-- The first position at or after `pos` that is not whitespace. -/
 @[specialize] def skipWs (get : Nat → Option UInt8) (n pos : Nat) : Nat :=
@@ -55,7 +55,7 @@ while parsing a value`. -/
 termination_by n - pos
 
 /-- The digit at byte `i` (`0` past the end). -/
-@[specialize] def digitAt (get : Nat → Option UInt8) (i : Nat) : Nat := ((get i).getD 48).toNat - 48
+@[inline] def digitAt (get : Nat → Option UInt8) (i : Nat) : Nat := ((get i).getD 48).toNat - 48
 
 /-- The value of `len` digits from `start`, left to right. -/
 @[specialize] def smallValue (get : Nat → Option UInt8) : (start len acc : Nat) → Nat
@@ -73,7 +73,7 @@ termination_by len
 
 /-- At least one digit at `pos`: (value, count, position after), else an error
 (end of input: `EOF while parsing a value`; anything else: `invalid number`). -/
-@[specialize] def digits1 (get : Nat → Option UInt8) (n pos : Nat) : Except ParseErr (Nat × Nat × Nat) :=
+@[inline] def digits1 (get : Nat → Option UInt8) (n pos : Nat) : Except ParseErr (Nat × Nat × Nat) :=
   let r := scanDigits get n pos 0
   if r.1 = 0 then
     match get pos with
@@ -83,7 +83,7 @@ termination_by len
 
 /-- The integer part: `0`, or a nonzero digit followed by digits. A leading
 zero followed by a digit is `invalid number`. Returns (value, position). -/
-@[specialize] def parseIntPart (get : Nat → Option UInt8) (n pos : Nat) : Except ParseErr (Nat × Nat) :=
+@[inline] def parseIntPart (get : Nat → Option UInt8) (n pos : Nat) : Except ParseErr (Nat × Nat) :=
   match get pos with
   | none => .error ⟨.eofWhileParsingValue, pos⟩
   | some b =>
@@ -98,13 +98,13 @@ zero followed by a digit is `invalid number`. Returns (value, position). -/
 
 /-- An optional fraction `.digits`: (value, digit count, position), count 0
 when absent. -/
-@[specialize] def parseFrac (get : Nat → Option UInt8) (n pos : Nat) : Except ParseErr (Nat × Nat × Nat) :=
+@[inline] def parseFrac (get : Nat → Option UInt8) (n pos : Nat) : Except ParseErr (Nat × Nat × Nat) :=
   match get pos with
   | some 46 => digits1 get n (pos + 1)
   | _ => .ok (0, 0, pos)
 
 /-- An optional exponent `e[+-]digits`: (present, value, position). -/
-@[specialize] def parseExp (get : Nat → Option UInt8) (n pos : Nat) : Except ParseErr (Bool × Int × Nat) :=
+@[inline] def parseExp (get : Nat → Option UInt8) (n pos : Nat) : Except ParseErr (Bool × Int × Nat) :=
   match get pos with
   | some b =>
     if b == 101 || b == 69 then
@@ -123,7 +123,7 @@ when absent. -/
 
 /-- Assemble a number from its parts: an integer when there is neither a
 fraction nor an exponent, otherwise a normalised decimal. -/
-def mkNumber (neg : Bool) (iv fv fc : Nat) (hasExp : Bool) (ev : Int) : Number :=
+@[inline] def mkNumber (neg : Bool) (iv fv fc : Nat) (hasExp : Bool) (ev : Int) : Number :=
   if fc = 0 ∧ hasExp = false then .int (if neg then -(iv : Int) else iv)
   else .float (Decimal.normalize neg (iv * 10 ^ fc + fv) (ev - fc))
 
@@ -150,12 +150,16 @@ structure ParseCfg where
 
 /-- Add member `(k, v)` to an object under construction with Python `dict`
 semantics: a new key is appended (and its position recorded in `idx`), an
-existing key keeps its position and takes the new value. -/
-def dictInsert (acc : Array (String × Json)) (idx : Std.HashMap String Nat) (k : String) (v : Json) :
+existing key keeps its position and takes the new value. Constant time
+(amortised): the new position is read before the push, so `acc` is not
+shared when it grows and is extended in place. -/
+@[inline] def dictInsert (acc : Array (String × Json)) (idx : Std.HashMap String Nat) (k : String) (v : Json) :
     Array (String × Json) × Std.HashMap String Nat :=
   match idx[k]? with
   | some i => (acc.setIfInBounds i (k, v), idx)
-  | none => (acc.push (k, v), idx.insert k acc.size)
+  | none =>
+    let i := acc.size
+    (acc.push (k, v), idx.insert k i)
 
 /-- The integers `0` to `1023` as values, built once: the parser returns these
 shared objects instead of allocating a fresh value per small integer. -/
@@ -192,7 +196,7 @@ abbrev Fields := Array (String × Json) × Std.HashMap String Nat
 def Fields.empty : Fields := (#[], {})
 
 /-- Add a member, collapsing a repeated key when `dedup` holds. -/
-def Fields.add (dedup : Bool) (st : Fields) (k : String) (v : Json) : Fields :=
+@[inline] def Fields.add (dedup : Bool) (st : Fields) (k : String) (v : Json) : Fields :=
   if dedup then dictInsert st.1 st.2 k v else (st.1.push (k, v), st.2)
 
 /-- The configuration with no limits. Not for untrusted input: without a depth
@@ -214,14 +218,14 @@ def ParseCfg.depthOk (cfg : ParseCfg) (d : Nat) : Bool :=
   | some L => d < L
 
 /-- Whether an integer part spanning `n` bytes (sign included) is allowed. -/
-def ParseCfg.intLenOk (cfg : ParseCfg) (n : Nat) : Bool :=
+@[inline] def ParseCfg.intLenOk (cfg : ParseCfg) (n : Nat) : Bool :=
   match cfg.maxIntLen with
   | none => true
   | some L => n ≤ L
 
 /-- The digits of a number from `p0` (just past its sign, if any), the number
 having started at `pos`. -/
-@[specialize] def parseNumberBody (cfg : ParseCfg) (get : Nat → Option UInt8) (n pos : Nat) (neg : Bool) (p0 : Nat) :
+@[inline] def parseNumberBody (cfg : ParseCfg) (get : Nat → Option UInt8) (n pos : Nat) (neg : Bool) (p0 : Nat) :
     Except ParseErr (Number × Nat) := do
   let (iv, p1) ← parseIntPart get n p0
   if cfg.intLenOk (p1 - pos) = false then
@@ -233,7 +237,7 @@ having started at `pos`. -/
 
 /-- A number at `pos` (which holds `-` or a digit). With `allowInfNan`,
 `-Infinity` too. -/
-@[specialize] def parseNumber (cfg : ParseCfg) (get : Nat → Option UInt8) (n pos : Nat) : Except ParseErr (Number × Nat) :=
+@[inline] def parseNumber (cfg : ParseCfg) (get : Nat → Option UInt8) (n pos : Nat) : Except ParseErr (Number × Nat) :=
   if get pos == some 45 then
     if cfg.allowInfNan && get (pos + 1) == some 73 then
       (expectLit get (pos + 2) [110, 102, 105, 110, 105, 116, 121]).map (fun p => (.negInf, p))
@@ -241,7 +245,7 @@ having started at `pos`. -/
   else parseNumberBody cfg get n pos false pos
 
 /-- One hex digit at `i`. -/
-@[specialize] def hexAt (get : Nat → Option UInt8) (i : Nat) : Except ParseErr Nat :=
+@[inline] def hexAt (get : Nat → Option UInt8) (i : Nat) : Except ParseErr Nat :=
   match get i with
   | none => .error ⟨.eofWhileParsingString, i⟩
   | some b =>

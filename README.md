@@ -134,6 +134,16 @@ adds at most 8 × the input + 32 MB):
 | 20 MB `[1,1,...]` (10^7 integers) | 211 MB | 232 MB |
 | 60 MB object repeating one key | 136 MB | 124 MB |
 
+Wide objects parse in linear time: each key is collapsed in constant time
+through a hash index. `lake exe bench wide|dups` (CI bounds the time, so a
+quadratic step fails the build):
+
+| input | pydantic-core 2.50.1 | lean-json |
+|---|---|---|
+| 2 MB object, 152k distinct keys | 44-52 ms | 91-150 ms |
+| 20 MB object, 1.4 M distinct keys | 1.4 s | 1.8-2.1 s |
+| 20 MB object, keys cycling through 1000 names | 174 ms | 0.56-0.88 s |
+
 ## Differences from pydantic-core
 
 * Floats are kept as exact decimals; `Number.toFloat` rounds on demand

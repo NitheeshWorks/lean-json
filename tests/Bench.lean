@@ -4,10 +4,12 @@ open LeanJson
 /-!
 # Native memory and time benchmark
 
-`lake exe bench [flat|keys|strings] [mb]` builds an input of about `mb` MB,
+`lake exe bench [flat|keys|strings|wide|dups|e2e] [mb] [max-ms]` builds an input of about `mb` MB,
 parses it with `parse` (the `from_json` defaults) and reports the time and the
 process's peak resident memory (`VmHWM`). It fails when the memory the parse
-adds exceeds `8 × input + 32 MB`. Run one kind per process: the peak is
+adds exceeds `8 × input + 32 MB` (`10 ×` for `wide`, whose every key is a
+string kept twice, in the object and in its key index), or the parse takes
+longer than `max-ms` when given. Run one kind per process: the peak is
 process-wide.
 
 * `flat`: `[1,1,...]`, 10 M small integers in 20 MB (pydantic-core 2.50.1:
@@ -15,6 +17,11 @@ process-wide.
 * `keys`: one object repeating `"key":12345`, collapsed to one member as a
   `dict` (pydantic-core: 136 MB at 60 MB).
 * `strings`: an array of 30-byte strings.
+* `wide`: one object of distinct keys `"k0":0,"k1":1,…` (pydantic-core 2.50.1:
+  2 MB, 152k keys in 44-52 ms; 20 MB, 1.4 M keys in 1.4 s). Before key
+  collapsing ran in constant time per key this was quadratic (2 MB: 39 s).
+* `dups`: the same with keys cycling through 1000 names, so almost every
+  member repeats an earlier key (pydantic-core: 20 MB in 174 ms).
 * `e2e`: the `flat` input as a server handles a request body: text in,
   `from_json`, `to_json` out (bound: 10 × input + 32 MB).
 -/
@@ -43,6 +50,20 @@ def repeatedKeys (mb : Nat) : ByteArray := Id.run do
   for i in [0:n] do
     if i > 0 then b := b.push 44
     b := b ++ item
+  b.push 125
+
+/-- An object of distinct keys `"k0":0,"k1":1,…` (`period = 0`), or of keys
+cycling through `period` names, each repeated (`"k0".."k999"` again and
+again): the wide request bodies a server must not choke on. -/
+def wideKeys (mb : Nat) (period : Nat := 0) : ByteArray := Id.run do
+  let mut b := ByteArray.emptyWithCapacity (mb * 1000000 + 64)
+  b := b.push 123
+  let mut i := 0
+  while b.size < mb * 1000000 do
+    if i > 0 then b := b.push 44
+    let k := if period = 0 then i else i % period
+    b := b ++ s!"\"k{k}\":{i % 1000}".toUTF8
+    i := i + 1
   b.push 125
 
 def strings (mb : Nat) : ByteArray := Id.run do
@@ -78,10 +99,13 @@ def endToEnd (mb : Nat) : IO UInt32 := do
 def main (args : List String) : IO UInt32 := do
   let kind := args.head?.getD "flat"
   let mb := (args.drop 1).head?.bind String.toNat? |>.getD 20
+  let maxMs := (args.drop 2).head?.bind String.toNat?
   if kind == "e2e" then return ← endToEnd mb
   let input := match kind with
     | "keys" => repeatedKeys mb
     | "strings" => strings mb
+    | "wide" => wideKeys mb
+    | "dups" => wideKeys mb 1000
     | _ => flatArray mb
   let base ← peakKB
   let t ← IO.monoMsNow
@@ -91,10 +115,14 @@ def main (args : List String) : IO UInt32 := do
     let peak ← peakKB
     let out := (print v.val).val.size
     let added := (peak - base) * 1024
-    let bound := 8 * input.size + 32 * 1000000
+    let bound := (if kind == "wide" then 10 else 8) * input.size + 32 * 1000000
     IO.println s!"{kind} {input.size / 1000000} MB: parse {t2 - t} ms, peak {peak / 1024} MB (before {base / 1024} MB), reprint {out} bytes"
     if added > bound then
       IO.println s!"FAIL: the parse added {added / 1000000} MB, over the bound {bound / 1000000} MB"
       return 1
+    if let some m := maxMs then
+      if t2 - t > m then
+        IO.println s!"FAIL: the parse took {t2 - t} ms, over the bound {m} ms"
+        return 1
     return 0
   | .error e => IO.println e.description; return 1

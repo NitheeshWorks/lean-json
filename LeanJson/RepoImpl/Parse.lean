@@ -24,14 +24,15 @@ or exponent is a float; strings reject raw control characters and decode
 namespace LeanJson
 
 /-- The view of a list: its bytes by position. -/
-def lv (L : List UInt8) : Nat → Option UInt8 := fun k => L[k]?
+@[inline] def lv (L : List UInt8) : Nat → Option UInt8 := fun k => L[k]?
 
-/-- The view of a buffer. -/
-def bv (bs : ByteArray) : Nat → Option UInt8 := fun k => bs[k]?
+/-- The view of a buffer. Inlined, so a read and the match on it compile to a
+bounds check and a byte load, with no `Option` allocated. -/
+@[inline] def bv (bs : ByteArray) : Nat → Option UInt8 := fun k => bs[k]?
 
 /-- Move a result's positions (its end position, or its error offset) on by
 `k`: a result read in a view rebased at `k`, seen from the enclosing view. -/
-def shiftRes {α : Type} (k : Nat) : Except ParseErr (α × Nat) → Except ParseErr (α × Nat)
+@[inline] def shiftRes {α : Type} (k : Nat) : Except ParseErr (α × Nat) → Except ParseErr (α × Nat)
   | .ok (a, p) => .ok (a, p + k)
   | .error e => .error ⟨e.kind, e.offset + k⟩
 
