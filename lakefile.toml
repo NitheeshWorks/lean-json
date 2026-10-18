@@ -46,3 +46,9 @@ name = "Keel"
 git = "https://github.com/NitheeshWorks/lean-keel"
 rev = "main"
 
+
+# Generator of the colliding-keys fixture read by `bench collide`
+# (`lake exe collidegen 10000 16 > tests/fixtures/collide-keys.txt`).
+[[lean_exe]]
+name = "collidegen"
+root = "tests.CollideGen"

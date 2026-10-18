@@ -38,6 +38,7 @@ jobs:
           lake exe bench wide 2 1000
           lake exe bench wide 20 15000
           lake exe bench dups 20 5000
+          lake exe bench collide 4 300
 
   plausible:
     runs-on: ubuntu-latest

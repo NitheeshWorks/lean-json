@@ -1,5 +1,5 @@
 import LeanJson.RepoImpl.Print
-import Std.Data.HashMap
+import LeanJson.RepoImpl.KeyIndex
 
 /-!
 # RepoImpl: the lexical productions
@@ -148,18 +148,23 @@ structure ParseCfg where
   dedupKeys : Bool := true
   deriving DecidableEq, Repr, Inhabited
 
+/-- Whether the member at position `j` has key `a`. -/
+@[inline] def Fields.isAt (acc : Array (String × Json)) (j : Nat) (a : String) : Bool :=
+  if h : j < acc.size then acc[j].1 == a else false
+
 /-- Add member `(k, v)` to an object under construction with Python `dict`
 semantics: a new key is appended (and its position recorded in `idx`), an
 existing key keeps its position and takes the new value. Constant time
-(amortised): the new position is read before the push, so `acc` is not
-shared when it grows and is extended in place. -/
-@[inline] def dictInsert (acc : Array (String × Json)) (idx : Std.HashMap String Nat) (k : String) (v : Json) :
-    Array (String × Json) × Std.HashMap String Nat :=
-  match idx[k]? with
+(amortised), and `O(log n)` at worst on hostile keys (`KeyIndex`). The new
+position is read before the push, so `acc` is not shared when it grows and
+is extended in place. -/
+@[inline] def dictInsert (acc : Array (String × Json)) (idx : KeyIndex) (k : String) (v : Json) :
+    Array (String × Json) × KeyIndex :=
+  match idx.find (Fields.isAt acc) k with
   | some i => (acc.setIfInBounds i (k, v), idx)
   | none =>
     let i := acc.size
-    (acc.push (k, v), idx.insert k i)
+    (acc.push (k, v), idx.add k i)
 
 /-- The integers `0` to `1023` as values, built once: the parser returns these
 shared objects instead of allocating a fresh value per small integer. -/
@@ -190,10 +195,10 @@ theorem Json.ofNumber_eq (n : Number) : Json.ofNumber n = .num n := by
 
 /-- An object under construction: its members so far, and (when keys are
 collapsed) where each key sits. -/
-abbrev Fields := Array (String × Json) × Std.HashMap String Nat
+abbrev Fields := Array (String × Json) × KeyIndex
 
 /-- The empty object under construction. -/
-def Fields.empty : Fields := (#[], {})
+def Fields.empty : Fields := (#[], .empty)
 
 /-- Add a member, collapsing a repeated key when `dedup` holds. -/
 @[inline] def Fields.add (dedup : Bool) (st : Fields) (k : String) (v : Json) : Fields :=

@@ -44,6 +44,9 @@ structure VerifiedJson where
   strictFinite : ∀ (bs : ByteArray) (v : Json), parseDocumentWith .strict bs = .ok v → v.allFinite = true
   /-- The default parser never returns a value deeper than its limit. -/
   depthBound : ∀ (bs : ByteArray) (v : Json), parseDocument bs = .ok v → v.height ≤ 200
+  /-- Collapsing repeated keys through the seeded index is the `dict`
+  specification: first position, last value. -/
+  dedupKeys : ∀ kvs : Array (String × Json), Json.dedupKeys kvs = (Json.dedupKeysList kvs.toList).toArray
 
 /-- The JSON layer, verified. -/
 def theVerifiedJson : VerifiedJson where
@@ -59,5 +62,6 @@ def theVerifiedJson : VerifiedJson where
     parseDocumentWith_print .strict o j (fits_strict hi hk hd hf) (Or.inr hf)
   strictFinite _ _ h := parse_finite rfl h
   depthBound _ _ h := parseDocument_height h
+  dedupKeys := dedupKeys_eq
 
 end LeanJson

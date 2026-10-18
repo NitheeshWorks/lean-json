@@ -135,14 +135,18 @@ adds at most 8 × the input + 32 MB):
 | 60 MB object repeating one key | 136 MB | 124 MB |
 
 Wide objects parse in linear time: each key is collapsed in constant time
-through a hash index. `lake exe bench wide|dups` (CI bounds the time, so a
-quadratic step fails the build):
+through a hash index. The index is keyed by a per-process secret
+(`KeyIndex`), and keys whose hashes collide outright go to a search tree, so
+no choice of keys makes it quadratic: the worst case is `O(n log n)`.
+`lake exe bench wide|dups|collide` (CI bounds the time, so a quadratic step
+fails the build):
 
 | input | pydantic-core 2.50.1 | lean-json |
 |---|---|---|
 | 2 MB object, 152k distinct keys | 44-52 ms | 91-150 ms |
 | 20 MB object, 1.4 M distinct keys | 1.4 s | 1.8-2.1 s |
 | 20 MB object, keys cycling through 1000 names | 174 ms | 0.56-0.88 s |
+| 10000 keys sharing one bucket of a plain `Std.HashMap String Nat` (`tests/fixtures/collide-keys.txt`), 4 passes | - | 16-20 ms (plain `Std.HashMap`: 4.2 s) |
 
 ## Differences from pydantic-core
 

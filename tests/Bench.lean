@@ -4,7 +4,7 @@ open LeanJson
 /-!
 # Native memory and time benchmark
 
-`lake exe bench [flat|keys|strings|wide|dups|e2e] [mb] [max-ms]` builds an input of about `mb` MB,
+`lake exe bench [flat|keys|strings|wide|dups|collide|collide-naive|e2e] [mb] [max-ms]` builds an input of about `mb` MB,
 parses it with `parse` (the `from_json` defaults) and reports the time and the
 process's peak resident memory (`VmHWM`). It fails when the memory the parse
 adds exceeds `8 × input + 32 MB` (`10 ×` for `wide`, whose every key is a
@@ -22,6 +22,12 @@ process-wide.
   collapsing ran in constant time per key this was quadratic (2 MB: 39 s).
 * `dups`: the same with keys cycling through 1000 names, so almost every
   member repeats an earlier key (pydantic-core: 20 MB in 174 ms).
+* `collide`: one object of the 10000 keys in `tests/fixtures/collide-keys.txt`
+  (from `lake exe collidegen`), which all share one bucket of every
+  `Std.HashMap` up to 65536 buckets under Lean's fixed-seed `String.hash`,
+  written `mb` times over (so later passes repeat earlier keys). The key
+  index must stay fast on them (`KeyIndex`). `collide-naive` inserts the same
+  keys into a plain `Std.HashMap String Nat`, to show the attack is real.
 * `e2e`: the `flat` input as a server handles a request body: text in,
   `from_json`, `to_json` out (bound: 10 × input + 32 MB).
 -/
@@ -96,16 +102,48 @@ def endToEnd (mb : Nat) : IO UInt32 := do
     return 0
   | .error e => IO.println e.description; return 1
 
+def collideKeys : IO (Array String) := do
+  let s ← IO.FS.readFile "tests/fixtures/collide-keys.txt"
+  return (s.splitOn "\n").filter (· ≠ "") |>.toArray
+
+/-- The colliding keys as one object, written `passes` times over. -/
+def collideObject (keys : Array String) (passes : Nat) : ByteArray := Id.run do
+  let mut b := ByteArray.emptyWithCapacity (passes * keys.size * 16 + 2)
+  b := b.push 123
+  let mut first := true
+  for p in [0:passes] do
+    for k in keys do
+      if !first then b := b.push 44
+      first := false
+      b := b ++ s!"\"{k}\":{p}".toUTF8
+  b.push 125
+
+/-- The same keys into a plain `Std.HashMap String Nat`: the index this
+library would have without `KeyIndex`. -/
+def collideNaive (passes : Nat) : IO UInt32 := do
+  let keys ← collideKeys
+  let t ← IO.monoMsNow
+  let mut m : Std.HashMap String Nat := {}
+  for p in [0:passes] do
+    for k in keys do
+      m := m.insert k p
+  let t2 ← IO.monoMsNow
+  IO.println s!"collide-naive: {keys.size} keys x {passes} into Std.HashMap String Nat: {t2 - t} ms ({m.size} entries)"
+  return 0
+
 def main (args : List String) : IO UInt32 := do
   let kind := args.head?.getD "flat"
   let mb := (args.drop 1).head?.bind String.toNat? |>.getD 20
   let maxMs := (args.drop 2).head?.bind String.toNat?
   if kind == "e2e" then return ← endToEnd mb
+  if kind == "collide-naive" then return ← collideNaive mb
+  let keys ← if kind == "collide" then collideKeys else pure #[]
   let input := match kind with
     | "keys" => repeatedKeys mb
     | "strings" => strings mb
     | "wide" => wideKeys mb
     | "dups" => wideKeys mb 1000
+    | "collide" => collideObject keys mb
     | _ => flatArray mb
   let base ← peakKB
   let t ← IO.monoMsNow
@@ -116,6 +154,13 @@ def main (args : List String) : IO UInt32 := do
     let out := (print v.val).val.size
     let added := (peak - base) * 1024
     let bound := (if kind == "wide" then 10 else 8) * input.size + 32 * 1000000
+    if kind == "collide" then
+      match v.val with
+      | .obj kvs =>
+        if kvs.size != keys.size then
+          IO.println s!"FAIL: {kvs.size} members, expected {keys.size} distinct keys"
+          return 1
+      | _ => IO.println "FAIL: not an object"; return 1
     IO.println s!"{kind} {input.size / 1000000} MB: parse {t2 - t} ms, peak {peak / 1024} MB (before {base / 1024} MB), reprint {out} bytes"
     if added > bound then
       IO.println s!"FAIL: the parse added {added / 1000000} MB, over the bound {bound / 1000000} MB"

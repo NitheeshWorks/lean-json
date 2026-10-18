@@ -34,6 +34,7 @@ lake exe bench e2e 20
 lake exe bench wide 2 1000
 lake exe bench wide 20 15000
 lake exe bench dups 20 5000
+lake exe bench collide 4 300
 
 if [[ "${1:-}" == "--pbt" ]]; then
   echo "== plausible =="

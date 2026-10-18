@@ -1,6 +1,7 @@
 import LeanJson.RepoImpl.Digits
 import LeanJson.RepoImpl.Print
 import LeanJson.RepoImpl.Builder
+import LeanJson.RepoImpl.KeyIndex
 import LeanJson.RepoImpl.Lex
 import LeanJson.RepoImpl.Str
 import LeanJson.RepoImpl.Grammar

@@ -97,9 +97,12 @@ Listed here with the reason, and in `docs/traceability.toml` with
 * **Duplicate-key helpers** (`Json.lookupLast`, `Json.dedupKeys`): tested for
   Python `dict` semantics (last value, first position, distinct keys), and
   for agreement with the parser's own collapsing (`tests/Props.lean`). What is
-  proved about the parser's collapsing is the round trip on values with
-  distinct keys (`Fields.add_fresh`) and that it returns only members it read
-  (`Fields.mem_add`), not that it equals `dedupKeys` of the uncollapsed parse.
+  proved about the collapsing is that one step is `insertLast`
+  (`Fields.add_exact`), so `Json.dedupKeys` is `Json.dedupKeysList`
+  (`dedupKeys_eq`); the round trip on values with distinct keys
+  (`Fields.add_fresh`); and that it returns only members it read
+  (`Fields.mem_add`). Not yet proved: that a collapsing parse equals
+  `dedupKeys` applied at every depth to the uncollapsed parse.
 * **Peak memory and time**: `tests/Bench.lean`, asserted in CI (the parse adds
   at most 8 × the input + 32 MB).
 * **Error kinds and offsets** for malformed input: the proofs cover what valid
@@ -145,8 +148,13 @@ statements are unchanged. Strings accumulate with `String.push`. The parser
 returns integers 0 to 1023 from a shared table (`smallInts`, through
 `Json.ofNumber`, with `Json.ofNumber_eq : Json.ofNumber n = .num n`, so the
 proofs see `.num`). An object under construction is a `Fields` (the members
-and, when collapsing, a `Std.HashMap` from key to position), dropped when the
-object closes.
+and, when collapsing, a `KeyIndex` from key to position), dropped when the
+object closes. `KeyIndex` (`RepoImpl/KeyIndex.lean`) hashes keys under
+`keySeed`, a secret drawn once per process (an `initialize` declaration; in
+the logic an opaque constant, so every theorem holds for every seed), stores
+only positions, and sends keys whose slot is taken to a `Std.TreeMap`: crafted
+colliding keys cost `O(log n)` each, not `O(n)` (`lake exe bench collide`,
+keys from `lake exe collidegen`).
 
 ## Decisions following upstream
 
