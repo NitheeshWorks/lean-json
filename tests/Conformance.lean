@@ -1,4 +1,5 @@
 import LeanJson
+import examples.concepts.Json
 
 /-!
 # Conformance cases
@@ -289,7 +290,17 @@ def cases : List Case := [
     expect (match from_json "{\"a\":1,\"b\":2,\"a\":{\"c\":3,\"c\":4}}" with
       | .ok v => dumps v.val
       | .error e => e.description) "{\"a\": {\"c\": 4}, \"b\": 2}"⟩,
-  ⟨"docs/concepts/json.md#partial-json-parsing", "allow_partial golden cases", partialGolden⟩
+  ⟨"docs/concepts/json.md#partial-json-parsing", "allow_partial golden cases", partialGolden⟩,
+  -- The docs examples (examples/concepts/Json.lean), against what the same
+  -- calls print on pydantic-core 2.50.1 (values as `json.dumps` writes them).
+  ⟨"docs/concepts/json.md#block-2", "docs example: from_json(..., allow_partial=False) error",
+    expect Examples.Json.strictError "EOF while parsing a string at line 1 column 15"⟩,
+  ⟨"docs/concepts/json.md#block-2", "docs example: from_json(..., allow_partial=True)",
+    expect (match Examples.Json.result with | .ok v => dumps v | .error e => e.description)
+      "[\"aa\", \"bb\"]"⟩,
+  ⟨"docs/concepts/json.md#block-3", "docs example: partial dog JSON",
+    expect (match Examples.Json.dog_dict with | .ok v => dumps v | .error e => e.description)
+      "{\"breed\": \"lab\", \"name\": \"fluffy\", \"friends\": [\"buddy\", \"spot\", \"rufus\"]}"⟩
 ]
 
 def main : IO UInt32 := do

@@ -1,0 +1,57 @@
+# Every upstream example in lean-json's scope and its Lean port (checked by
+# stack-tools/check-examples.py). pydantic-core ships no example programs; its
+# JSON functions are documented in pydantic's docs page docs/concepts/json.md
+# and in the pydantic-core README, so those two pages are the examples.
+# Blocks that validate into a BaseModel or call SchemaValidator belong to
+# lean-pydantic and are excluded here with that reason.
+
+[meta]
+upstream = "pydantic"
+doc_pages = ["docs/concepts/json.md", "pydantic-core/README.md"]
+# Only these pages: the rest of pydantic's docs document pydantic itself,
+# which lean-pydantic ports (its own examples/MANIFEST.toml covers them).
+docs_roots = ["docs/concepts/json.md", "pydantic-core/README.md"]
+# Not a port: lean-json's own README quickstart, compiled (`lake exe quickstart`).
+helpers = ["examples/Quickstart.lean"]
+
+[[example]]
+upstream = "docs/concepts/json.md#block-1"
+lean = ""
+status = "excluded"
+reason = "BaseModel.model_validate_json with strict mode and date/tuple fields: pydantic model validation, ported by lean-pydantic"
+output = ""
+
+[[example]]
+upstream = "docs/concepts/json.md#block-2"
+lean = "examples/concepts/Json.lean"
+status = "ported"
+reason = ""
+output = "tests/Conformance.lean::docs example: from_json(..., allow_partial=True)"
+
+[[example]]
+upstream = "docs/concepts/json.md#block-3"
+lean = "examples/concepts/Json.lean"
+status = "ported"
+reason = ""
+output = "tests/Conformance.lean::docs example: partial dog JSON"
+
+[[example]]
+upstream = "docs/concepts/json.md#block-4"
+lean = ""
+status = "excluded"
+reason = "Dog(BaseModel).model_validate of a partial from_json result: pydantic model validation, ported by lean-pydantic (the from_json call is block 3's, ported here)"
+output = ""
+
+[[example]]
+upstream = "docs/concepts/json.md#block-5"
+lean = ""
+status = "excluded"
+reason = "WrapValidator and PydanticUseDefault on BaseModel fields: pydantic validators, ported by lean-pydantic"
+output = ""
+
+[[example]]
+upstream = "pydantic-core/README.md#block-1"
+lean = ""
+status = "excluded"
+reason = "SchemaValidator with a core schema: pydantic-core validation, ported by lean-pydantic; lean-json is only pydantic-core's JSON parser and serialiser"
+output = ""

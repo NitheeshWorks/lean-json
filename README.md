@@ -23,7 +23,8 @@ to_json(data, indent=2)   # pretty, two spaces
 from_json('[1,\n2,\n3,]') # ValueError: trailing comma at line 3 column 3
 ```
 
-lean-json (`examples/Quickstart.lean` is the same, compiled by CI):
+lean-json (`examples/Quickstart.lean` is the same, compiled by CI; the
+upstream docs examples are ported in [`examples/`](examples/README.md)):
 
 ```lean
 import LeanJson
@@ -61,6 +62,7 @@ proved about it (below). Take `.val` when you only want the value.
 |---|---|
 | `from_json(data)` | `from_json data` / `fromJson data` |
 | `from_json(data, allow_inf_nan=False)` | `from_json data (allow_inf_nan := false)` |
+| `from_json(data, allow_partial=True)` / `'trailing-strings'` | `from_json data (allow_partial := true)` / `(allow_partial := .trailingStrings)` |
 | `to_json(value, indent=None, ensure_ascii=False, inf_nan_mode='constants')` | `to_json value (indent := none) (ensure_ascii := false) (inf_nan_mode := .constants)` / `toJson` |
 | JSON value (`dict`, `list`, `str`, `int`, `float`, `bool`, `None`) | `Json`: `obj`, `arr`, `str`, `num (.int _ / .float _)`, `bool`, `null` |
 | `ValueError` / `json_invalid` context | `JsonError`, `JsonError.description` |
@@ -152,7 +154,7 @@ fails the build):
 
 * Floats are kept as exact decimals; `Number.toFloat` rounds on demand
   (upstream rounds at parse time, so `1e400` becomes `inf`).
-* `allow_partial` and `cache_strings` are not implemented.
+* `cache_strings` is not implemented (it only changes allocation, not values).
 * `dumps` prints numbers as `to_json` does, so an exponent is not padded
   (`1e-7`, where Python's `json.dumps` writes `1e-07`).
 

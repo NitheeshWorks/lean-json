@@ -23,6 +23,9 @@ lake exe props
 echo "== conformance =="
 lake exe conformance
 
+echo "== examples =="
+if [[ -f ../stack-tools/check-examples.py ]]; then python3 ../stack-tools/check-examples.py .; fi
+
 echo "== json% next to Lean core's json% =="
 lake exe notation
 

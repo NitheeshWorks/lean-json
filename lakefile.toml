@@ -1,11 +1,18 @@
 name = "LeanJson"
 version = "0.1.0"
-defaultTargets = ["LeanJson", "props", "conformance", "quickstart", "notation"]
+defaultTargets = ["LeanJson", "Examples", "props", "conformance", "quickstart", "notation"]
 
 # The verified library. Everything under LeanJson/ except Transport.lean is a
 # total function and the proof surface; see CONTRIBUTING.md.
 [[lean_lib]]
 name = "LeanJson"
+
+# Ports of the upstream docs examples (see examples/MANIFEST.toml).
+# `tests/Conformance.lean` checks every value they print against
+# pydantic-core 2.50.1.
+[[lean_lib]]
+name = "Examples"
+roots = ["examples.concepts.Json"]
 
 # Property tests for what is tested rather than proved. No dependencies, runs
 # in well under a second: `lake exe props [seed]`.
