@@ -74,8 +74,7 @@ theorem parsedAt_of_ref {bs : ByteArray} {pos : Nat} {r : Json × Nat}
   ref := h
   bounds := parseValueAt_progress h
   canonical o d w rest hrb hk hw hr := by
-    have e1 := (valueCodec (ParseCfg.relax {}) o d).law w _ _ rest ⟨fits_relax fun _ => hk, hrb⟩ hw hr
-    simp only [valueCodec] at e1
+    have e1 := parseValueAt_print (ParseCfg.relax {}) o d (fits_relax fun _ => hk) hrb hw hr
     rw [parseValue_relax {} bs pos r h] at e1
     cases e1; rfl
 

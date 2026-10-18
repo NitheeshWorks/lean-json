@@ -21,9 +21,9 @@ structure VerifiedJson where
   /-- Round trip on any continuation, any options, any depth (lossless parser). -/
   parsePrintExt : ParsePrintExt (parse .lossless) print
   /-- Strings, both escape modes, `\uXXXX` and surrogate pairs. -/
-  stringExt : StringExt parseString printString
+  stringExt : StringExt parseStringAt printString
   /-- Numbers: integers of any size, floats with mantissa, exponent and sign of zero. -/
-  numberExt : NumberExt (parseNumber .lossless) printNumber
+  numberExt : NumberExt (parseNumberAt .lossless) printNumber
   /-- The printer is injective under every option set. -/
   printInjective : PrintInjective print
   /-- …and on finite values under every option, every NaN/infinity mode included. -/

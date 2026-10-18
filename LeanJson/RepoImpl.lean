@@ -3,7 +3,7 @@ import LeanJson.RepoImpl.Print
 import LeanJson.RepoImpl.Builder
 import LeanJson.RepoImpl.Lex
 import LeanJson.RepoImpl.Str
-import LeanJson.RepoImpl.Step
+import LeanJson.RepoImpl.Grammar
 import LeanJson.RepoImpl.Parse
 import LeanJson.RepoImpl.Access
 import LeanJson.RepoImpl.Notation

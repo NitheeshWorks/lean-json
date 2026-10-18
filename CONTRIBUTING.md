@@ -33,9 +33,9 @@ be a Hoare triple over a heap.
 * **Refinement types are subtypes with `Decidable` predicates**, so the same
   predicate is checked at runtime (`if h : P x`) and used in proofs.
 * **Totality.** No `partial def` or `unsafe` under `LeanJson/`, and no fuel in
-  the parser: scanners recurse on `bs.size - pos`, and the value parser returns
-  `Step`s (value, next position, and the proofs `pos < next ≤ size`), so its
-  mutual recursion is well founded on the remaining input.
+  the parser: scanners and the element and member loops recurse on the bytes
+  left (a loop checks its own progress before it goes round), and nesting is
+  structural on a budget of levels (`valueGo`), jiter's depth limit.
 * **`_ext` lemmas.** A decoder lemma holds on any continuation of the buffer and
   reports the final position, so field lemmas compose. Do not add a lemma that
   only holds at the end of a buffer; it is unusable one field later.
@@ -50,34 +50,39 @@ be a Hoare triple over a heap.
 
 | Module | What it proves |
 |---|---|
-| `Proofs/Bytes.lean` | `Spec.At`: reading bytes of a buffer whose suffix is a known list |
+| `Proofs/View.lean` | `AtV`: reading a view (`get : Nat → Option UInt8`, length `n`) whose suffix is a known list; buffers, lists and rebased views are views |
+| `Proofs/Progress.lean` | progress of every lexical production (`Adv`): it moves forward and stays in the view |
 | `Proofs/Digits.lean` | digit lists, digit runs (`scanDigits_ext`, `digitsValue_ext`), the decimal normal form (`normalize_mul`) |
 | `Proofs/Number.lean` | `parseNumber_printNumber_ext`, via one shape lemma for ryu's five layouts |
 | `Proofs/String.lean` | `parseString_printString_ext`, via `strStep` (one character, every escape form) |
-| `Proofs/Value.lean` | `parseValue_ext`, by mutual structural recursion over values, element lists and member lists |
-| `RepoImpl/Step.lean` | progress of every lexical production (`Adv`), used by the parser's types |
-| `Proofs/Unfold.lean` | the parser's equations with progress proofs erased (`parseValueAt_eq`, …), via two `Step` lemmas |
-| `Proofs/Codec.lean` | the `Codec` theory (`decode_encode`, `encode_injective`), its instances, `parse_print`, `print_injective`, `parse_canonical`, config relaxation |
-| `Proofs/Depth.lean` | `parse_height` (the depth bound), `fits_default` (the round trip's side condition in plain terms) |
+| `Proofs/Step.lean` | the three laws of one step: `valueStep_sim`, `valueStep_shape`, `valueStep_relax`; `valueGo_rebase`, `valueL_progress` |
+| `Proofs/Value.lean` | `valueStep_ext` (one level reads a printed value, given a child that reads its children) and `valueGo_ext`, by induction on the levels |
+| `Proofs/Grammar.lean` | the fast parser is the Keel parser: `valueL_ok_iff`; `valueNode_monotone`, hence Keel's `fixDepth_ok`; `valueL_deepen` |
+| `Proofs/Depth.lean` | `valueL_height` (the depth bound), `valueL_finite` (strict mode), `fits_height`, `fits_default` (the round trip's side condition in plain terms) |
+| `Proofs/Codec.lean` | the `Keel.Codec` instances (`stringCodec`, `numberCodec`, `valueCodec`), `parse_print`, `print_injective`, `parse_canonical`, config relaxation, `parse_height`, `parse_finite` |
 | `Proofs/Compact.lean` | `print_compact` |
 | `Proofs/Builder.lean` | `printBA_eq`: the linear printer equals the specification |
 | `Proofs/Verified.lean` | `VerifiedJson`, one field per headline specification |
 
-The codec law is the one pattern behind every round trip: an encoder, a
-decoder from a buffer and cursor, and `decode (encode a ++ rest) = .ok (a,
-(encode a).length)` for every continuation the codec can stop at. Strings,
-numbers and values are instances (`stringCodec`, `numberCodec`,
-`valueCodec`); `parse_print` and `print_injective` are corollaries of the
-general lemmas. When the shared theory library of the stack exists, `Codec`
-moves there unchanged.
+**One grammar, two parsers.** The grammar is written once, over views:
+`valueStep cfg child get n` reads the value whose first byte is at position
+`0` of the view `get`, calling `child` for nested values; the lexers
+(`parseString`, `parseNumber`, …) take the same views and are
+`@[specialize]`d. The fast parser (`valueGo`) feeds `valueStep` itself as the
+child, each nested value read through the view rebased at its first byte,
+with a budget of levels. The Keel parser (`RepoImpl/Grammar.lean`) wraps the
+same `valueStep` as a `Keel.Parser` body (`valueNode`) and ties it with
+`Parser.fixDepth` (`jsonParser`). `valueL_ok_iff` says they succeed on the
+same inputs with the same results, so Keel's laws about `fixDepth` (it agrees
+with `fix` where it succeeds; beyond the input's length the bound is never
+reached) are facts about the fast parser: `valueL_deepen`.
 
-The parser is progress-indexed (STYLE.md, "Total parsing"): `Step bs pos α`
-carries the value, the next position and the proofs that it is past `pos`
-and within the buffer; `Step.lift` turns a lexical production plus its
-progress lemma into a step, `Step.cast` relabels it. Totality is therefore a
-property of the types, and `step_progress` is read off them. The equations
-in `Proofs/Unfold.lean` erase the proofs once, so the round-trip and
-relaxation proofs rewrite with ordinary equations.
+**Codecs are `Keel.Codec`s.** An encoder, a Keel decoder, and Keel's law
+`parse (encode a ++ rest) = .ok a rest` for every continuation the codec
+tolerates. Strings and numbers are lexers with their `_ext` law
+(`lexerCodec`); values are `valueCodec`, decoded by `jsonParser`.
+`print_injective` is Keel's `Codec.encode_injective`. lean-json defines no
+codec theory of its own.
 
 ### Tested, not proved
 

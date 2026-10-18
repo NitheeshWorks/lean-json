@@ -1,14 +1,17 @@
-import LeanJson.Proofs.Codec
+import LeanJson.Proofs.Grammar
+import LeanJson.Proofs.Value
 
 /-!
-# Proofs: the depth limit
+# Proofs: the depth limit and strict finiteness
 
-`parse_height`: under a configuration with `maxDepth = some L`, every value the
-parser returns has `height < L`: input nested deeper is never accepted. With
-jiter's default (201) that is `height ≤ 200`, matching `from_json`.
+`valueL_height`: a value read with `d` levels left has height below `d`, so
+under `maxDepth = some L` nothing nested deeper than jiter allows is returned.
+`valueL_finite`: in strict mode no `NaN` or infinity is returned. Both are one
+induction on the levels, with `valueStep_shape` at each.
 
-`fits_default`: a value whose integers fit and whose height is at most 200
-is within the default limits, so `parse_print` applies to it.
+`fits_height`: a value within a configuration's limits is lower than its depth
+limit; `fits_default`: a value whose integers fit, whose keys are unique and
+whose height is at most 200 is within the default limits.
 -/
 
 namespace LeanJson
@@ -18,26 +21,6 @@ open Spec
 theorem depthOk_some {cfg : ParseCfg} {L k : Nat} (hL : cfg.maxDepth = some L) :
     cfg.depthOk k = true ↔ k < L := by
   simp [ParseCfg.depthOk, hL]
-
-theorem height_le_list {x : Json} {xs : List Json} (h : x ∈ xs) : x.height ≤ Json.heightList xs := by
-  induction xs with
-  | nil => cases h
-  | cons y ys ih =>
-    simp only [Json.heightList]
-    rcases List.mem_cons.mp h with rfl | h
-    · exact Nat.le_max_left _ _
-    · exact Nat.le_trans (ih h) (Nat.le_max_right _ _)
-
-theorem height_le_fields {kv : String × Json} {kvs : List (String × Json)} (h : kv ∈ kvs) :
-    kv.2.height ≤ Json.heightFields kvs := by
-  induction kvs with
-  | nil => cases h
-  | cons y ys ih =>
-    obtain ⟨k, v⟩ := y
-    simp only [Json.heightFields]
-    rcases List.mem_cons.mp h with rfl | h
-    · exact Nat.le_max_left _ _
-    · exact Nat.le_trans (ih h) (Nat.le_max_right _ _)
 
 theorem heightList_lt {xs : List Json} {m : Nat} (h : ∀ y ∈ xs, y.height < m) (hm : 0 < m) :
     Json.heightList xs < m := by
@@ -77,260 +60,33 @@ theorem height_obj {kvs : List (String × Json)} {k L : Nat} (hk : k < L)
     simp only [Json.heightFields] at this
     simp only [Json.height]; omega
 
-/-! ## What every parsed value satisfies
-
-One induction over the parser, for any property `P k v` ("`v`, parsed inside
-`k` containers") that holds of each scalar the parser can produce and is
-preserved by arrays and objects. The depth bound and strict finiteness are
-instances. -/
-
-/-- A property of values, indexed by how many containers they sit in, that the
-parser's productions preserve under `cfg`. -/
-structure ParseInvariant (cfg : ParseCfg) (P : Nat → Json → Prop) : Prop where
-  scalar : ∀ k (a : Json), cfg.depthOk k = true → a.height = 0 → (∀ n, a ≠ .num n) → P k a
-  num : ∀ k (bs : ByteArray) pos x p, cfg.depthOk k = true → parseNumber cfg bs pos = .ok (x, p) →
-    P k (.num x)
-  nonfinite : ∀ k, cfg.depthOk k = true → cfg.allowInfNan = true → P k (.num .nan) ∧ P k (.num .inf)
-  arr : ∀ k (ys : List Json), cfg.depthOk k = true → (∀ y ∈ ys, P (k + 1) y) → P k (.arr ⟨ys⟩)
-  obj : ∀ k (kvs : List (String × Json)), cfg.depthOk k = true → (∀ kv ∈ kvs, P (k + 1) kv.2) →
-    P k (.obj ⟨kvs⟩)
-
-section
-variable (cfg : ParseCfg) (P : Nat → Json → Prop) (bs : ByteArray)
-
-def HV (pos : Nat) : Prop :=
-  ∀ k r, parseValueAtD cfg bs k pos = .ok r → P k r.1
-def HE (pos : Nat) : Prop :=
-  ∀ k start acc r, start ≤ pos → parseElemsAt cfg bs k start pos acc = .ok r →
-    (∀ x ∈ acc.toList, P k x) → ∃ ys, r.1 = .arr ⟨ys⟩ ∧ ∀ y ∈ ys, P k y
-def HM (pos : Nat) : Prop :=
-  ∀ k start acc r, start ≤ pos → parseMembersAt cfg bs k start pos acc = .ok r →
-    (∀ kv ∈ acc.1.toList, P k kv.2) → ∃ kvs, r.1 = .obj ⟨kvs⟩ ∧ ∀ kv ∈ kvs, P k kv.2
-end
-
-theorem map_ok_fst {α : Type} {f : α → Json} {r : Except ParseErr (α × Nat)} {x : Json × Nat}
-    (h : r.map (fun y => (f y.1, y.2)) = .ok x) : ∃ a, x.1 = f a := by
-  cases r with
-  | error e => cases h
-  | ok y => cases h; exact ⟨y.1, rfl⟩
-
-theorem map_ok_const {α : Type} {c : Json} {r : Except ParseErr α} {x : Json × α}
-    (h : r.map (fun p => (c, p)) = .ok x) : x.1 = c := by
-  cases r with
-  | error e => cases h
-  | ok y => cases h; rfl
-
-theorem hv_step {cfg : ParseCfg} {P : Nat → Json → Prop} (inv : ParseInvariant cfg P) (bs : ByteArray)
-    (pos : Nat) (IHe : ∀ p, bs.size - p < bs.size - pos → HE cfg P bs p)
-    (IHm : ∀ p, bs.size - p < bs.size - pos → HM cfg P bs p) : HV cfg P bs pos := by
-  intro k r h
-  rw [parseValueAtD_eq] at h
-  have g0 := skipWs_ge bs pos
-  have g1 := skipWs_ge bs (skipWs bs pos + 1)
-  split at h
-  · cases h
-  rename_i b hb
-  by_cases hd : cfg.depthOk k = false
-  · rw [ite_eq_left hd] at h; cases h
-  rw [ite_eq_right hd] at h
-  have hk : cfg.depthOk k = true := by simpa using hd
-  have scalar : ∀ a : Json, a.height = 0 → (∀ n, a ≠ .num n) → r.1 = a → P k r.1 := by
-    intro a ha hn e; rw [e]; exact inv.scalar k a hk ha hn
-  by_cases c34 : (b == 34) = true
-  · rw [ite_eq_left c34] at h
-    obtain ⟨a, e⟩ := map_ok_fst (f := Json.str) h
-    exact scalar (.str a) rfl (fun _ h => by cases h) e
-  rw [ite_eq_right c34] at h
-  by_cases c91 : (b == 91) = true
-  · rw [ite_eq_left c91] at h
-    split at h
-    · cases h
-    · rename_i c hp
-      have := lt_size_of_get hp
-      split at h
-      · cases h; exact inv.arr k [] hk (by simp)
-      · obtain ⟨ys, e, hys⟩ := IHe _ (by omega) _ _ #[] r (by omega) h (by simp)
-        rw [e]; exact inv.arr k ys hk hys
-  rw [ite_eq_right c91] at h
-  by_cases c123 : (b == 123) = true
-  · rw [ite_eq_left c123] at h
-    split at h
-    · cases h
-    · rename_i c hp
-      have := lt_size_of_get hp
-      split at h
-      · cases h; exact inv.obj k [] hk (by simp)
-      · split at h
-        · obtain ⟨kvs, e, hkvs⟩ := IHm _ (by omega) _ _ .empty r (by omega) h (by simp [Fields.empty])
-          rw [e]; exact inv.obj k kvs hk hkvs
-        · cases h
-  rw [ite_eq_right c123] at h
-  by_cases c116 : (b == 116) = true
-  · rw [ite_eq_left c116] at h; exact scalar (.bool true) rfl (fun _ h => by cases h) (map_ok_const h)
-  rw [ite_eq_right c116] at h
-  by_cases c102 : (b == 102) = true
-  · rw [ite_eq_left c102] at h; exact scalar (.bool false) rfl (fun _ h => by cases h) (map_ok_const h)
-  rw [ite_eq_right c102] at h
-  by_cases c110 : (b == 110) = true
-  · rw [ite_eq_left c110] at h; exact scalar .null rfl (fun _ h => by cases h) (map_ok_const h)
-  rw [ite_eq_right c110] at h
-  by_cases cn : (b == 45 || isDigit b) = true
-  · rw [ite_eq_left cn] at h
-    cases hx : parseNumber cfg bs (skipWs bs pos) with
-    | error e => rw [hx] at h; cases h
-    | ok x => rw [hx] at h; cases h; exact inv.num k bs _ x.1 x.2 hk hx
-  rw [ite_eq_right cn] at h
-  by_cases c78 : (b == 78 && cfg.allowInfNan) = true
-  · rw [ite_eq_left c78] at h
-    rw [map_ok_const h]; exact (inv.nonfinite k hk (by simp at c78; exact c78.2)).1
-  rw [ite_eq_right c78] at h
-  by_cases c73 : (b == 73 && cfg.allowInfNan) = true
-  · rw [ite_eq_left c73] at h
-    rw [map_ok_const h]; exact (inv.nonfinite k hk (by simp at c73; exact c73.2)).2
-  rw [ite_eq_right c73] at h
-  cases h
-
-theorem he_step (cfg : ParseCfg) (P : Nat → Json → Prop) (bs : ByteArray) (pos : Nat)
-    (hV : HV cfg P bs pos) (IHe : ∀ p, bs.size - p < bs.size - pos → HE cfg P bs p) :
-    HE cfg P bs pos := by
-  intro k start acc r hsp h hacc
-  rw [parseElemsAt_eq _ _ _ _ _ _ hsp] at h
-  split at h
-  · cases h
-  · rename_i v p1 hv
-    have pr := parseValueAtD_progress hv
-    have hvh := hV _ _ hv
-    have g1 := skipWs_ge bs p1
-    have g2 := skipWs_ge bs (skipWs bs p1 + 1)
-    have hacc' : ∀ x ∈ (acc.push v).toList, P k x := by
-      intro x hx; rcases (by simpa using hx : x ∈ acc.toList ∨ x = v) with hx | rfl
-      · exact hacc x hx
-      · exact hvh
-    split at h
-    · cases h
-    · split at h
-      · split at h
-        · cases h
-        · exact IHe _ (by simp at pr; omega) _ _ _ r (by simp at pr; omega) h hacc'
-      · split at h
-        · cases h; exact ⟨_, rfl, hacc'⟩
-        · cases h
-
-theorem hm_step (cfg : ParseCfg) (P : Nat → Json → Prop) (bs : ByteArray) (pos : Nat)
-    (IHv : ∀ p, bs.size - p < bs.size - pos → HV cfg P bs p)
-    (IHm : ∀ p, bs.size - p < bs.size - pos → HM cfg P bs p) : HM cfg P bs pos := by
-  intro k start acc r hsp h hacc
-  rw [parseMembersAt_eq _ _ _ _ _ _ hsp] at h
-  split at h
-  · cases h
-  · rename_i key p1 hk
-    have pk := (parseString_adv hk).2
-    have g1 := skipWs_ge bs p1
-    split at h
-    · cases h
-    · rename_i c hp
-      have hps := lt_size_of_get hp
-      split at h
-      · split at h
-        · cases h
-        · rename_i v p2 hv
-          have pr := parseValueAtD_progress hv
-          have hvh := IHv _ (by omega) _ _ hv
-          have g2 := skipWs_ge bs p2
-          have g3 := skipWs_ge bs (skipWs bs p2 + 1)
-          have hacc' : ∀ kv ∈ (acc.add cfg.dedupKeys key v).1.toList, P k kv.2 := by
-            intro kv hx; rcases Fields.mem_add hx with hx | rfl
-            · exact hacc kv hx
-            · exact hvh
-          split at h
-          · cases h
-          · split at h
-            · split at h
-              · cases h
-              · rename_i f he
-                have hqs := lt_size_of_get he
-                split at h
-                · exact IHm _ (by simp at pr; omega) _ _ _ r (by simp at pr; omega) h hacc'
-                · split at h <;> cases h
-            · split at h
-              · cases h; exact ⟨_, rfl, hacc'⟩
-              · cases h
-      · cases h
-
-theorem invariant_all {cfg : ParseCfg} {P : Nat → Json → Prop} (inv : ParseInvariant cfg P)
-    (bs : ByteArray) : ∀ n pos, bs.size - pos ≤ n → HV cfg P bs pos ∧ HE cfg P bs pos ∧ HM cfg P bs pos := by
-  intro n
-  induction n with
-  | zero =>
-    intro pos hp
-    have IH0 : ∀ p, bs.size - p < bs.size - pos → False := fun p h => by omega
-    have hv := hv_step inv bs pos (fun p h => (IH0 p h).elim) (fun p h => (IH0 p h).elim)
-    exact ⟨hv, he_step cfg P bs pos hv (fun p h => (IH0 p h).elim),
-      hm_step cfg P bs pos (fun p h => (IH0 p h).elim) (fun p h => (IH0 p h).elim)⟩
-  | succ n ih =>
-    intro pos hp
-    have IH : ∀ p, bs.size - p < bs.size - pos → HV cfg P bs p ∧ HE cfg P bs p ∧ HM cfg P bs p :=
-      fun p h => ih p (by omega)
-    have hv := hv_step inv bs pos (fun p h => (IH p h).2.1) (fun p h => (IH p h).2.2)
-    exact ⟨hv, he_step cfg P bs pos hv (fun p h => (IH p h).2.1),
-      hm_step cfg P bs pos (fun p h => (IH p h).1) (fun p h => (IH p h).2.2)⟩
-
-/-- **Every parsed document satisfies an invariant of the parser.** -/
-theorem parse_invariant {cfg : ParseCfg} {P : Nat → Json → Prop} (inv : ParseInvariant cfg P)
-    {bs : ByteArray} {v : Json} (h : parseDocumentWith cfg bs = .ok v) : P 0 v := by
-  unfold parseDocumentWith at h
-  split at h
-  · cases h
-  · rename_i w p hw
-    simp only at h
-    split at h
-    · cases h
-    · cases h
-      exact (invariant_all inv bs _ 0 (Nat.le_refl _)).1 0 _ hw
-
-/-- The depth bound as a parser invariant. -/
-theorem heightInvariant {cfg : ParseCfg} {L : Nat} (hL : cfg.maxDepth = some L) :
-    ParseInvariant cfg (fun k v => k + v.height < L) where
-  scalar k a hk ha _ := by rw [ha]; simpa using (depthOk_some hL).mp hk
-  num k _ _ _ _ hk _ := by simpa [Json.height] using (depthOk_some hL).mp hk
-  nonfinite k hk _ := by
-    have := (depthOk_some hL).mp hk; exact ⟨by simpa [Json.height], by simpa [Json.height]⟩
-  arr k ys hk h := height_arr ((depthOk_some hL).mp hk) (fun y hy => by have := h y hy; omega)
-  obj k kvs hk h := height_obj ((depthOk_some hL).mp hk) (fun kv hkv => by have := h kv hkv; omega)
-
-/-- **The depth bound.** Under `maxDepth = some L`, a successful document
-parse returns a value of height below `L`. -/
-theorem parse_height {cfg : ParseCfg} {L : Nat} (hL : cfg.maxDepth = some L) {bs : ByteArray} {v : Json}
-    (h : parseDocumentWith cfg bs = .ok v) : v.height < L := by
-  simpa using parse_invariant (heightInvariant hL) h
-
-/-- `from_json` never returns a value nested deeper than jiter allows. -/
-theorem parseDocument_height {bs : ByteArray} {v : Json} (h : parseDocument bs = .ok v) :
-    v.height ≤ 200 := by
-  have := parse_height (cfg := {}) (L := 201) rfl h
-  omega
-
-theorem parseNumber_strict_finite {cfg : ParseCfg} {bs : ByteArray} {pos : Nat} {x : Number} {p : Nat}
-    (hs : cfg.allowInfNan = false) (h : parseNumber cfg bs pos = .ok (x, p)) : x.isFinite = true := by
-  have body : ∀ {neg p0}, parseNumberBody cfg bs pos neg p0 = .ok (x, p) → x.isFinite = true := by
-    intro neg p0 hb
-    unfold parseNumberBody at hb
-    simp only [bind, Except.bind] at hb
-    split at hb
-    · cases hb
-    · split at hb
-      · cases hb
-      · split at hb
-        · cases hb
-        · split at hb
-          · cases hb
-          · cases hb; unfold mkNumber; split <;> rfl
-  unfold parseNumber at h
-  split at h
-  · split at h
-    · rename_i c; simp [hs] at c
-    · exact body h
-  · exact body h
+/-- **The depth bound**: a value read with `d` levels left has height below
+`d`. -/
+theorem valueL_height (cfg : ParseCfg) :
+    ∀ (d : Nat) (L : List UInt8) {v : Json} {p : Nat}, valueL cfg d L = .ok (v, p) → v.height < d
+  | 0, _, _, _, h => by simp [valueL, valueGo] at h
+  | d + 1, L, v, p, h => by
+    rw [valueL_succ] at h
+    have hn := (valueStep_shape (P := fun w => w.height < d) cfg (viewOk_lv L) ?_ h).1
+    · match v, hn with
+      | .arr ⟨[]⟩, _ | .obj ⟨[]⟩, _ => simp [Json.height]
+      | .arr ⟨x :: xs⟩, hn =>
+        have := heightList_lt (xs := x :: xs) hn (by have := hn x (by simp); omega)
+        simp only [Json.heightList] at this; simp only [Json.height]; omega
+      | .obj ⟨(k, w) :: kvs⟩, hn =>
+        have := heightFields_lt (kvs := (k, w) :: kvs) hn (by have := hn (k, w) (by simp); simp at this; omega)
+        simp only [Json.heightFields] at this; simp only [Json.height]; omega
+      | .null, _ | .bool _, _ | .num _, _ | .str _, _ => simp [Json.height]
+    · intro j w q _ _ hw
+      dsimp only at hw
+      cases hc : valueL cfg d (L.drop j) with
+      | error e => rw [hc] at hw; cases hw
+      | ok r =>
+        obtain ⟨w', q'⟩ := r
+        rw [hc] at hw; cases hw
+        have := (valueL_progress cfg d _ hc)
+        simp at this
+        exact ⟨valueL_height cfg d _ hc, by omega, by omega⟩
 
 theorem allFiniteList_of {xs : List Json} (h : ∀ y ∈ xs, y.allFinite = true) :
     Json.allFiniteList xs = true := by
@@ -349,25 +105,54 @@ theorem allFiniteFields_of {kvs : List (String × Json)} (h : ∀ kv ∈ kvs, kv
     simp only [Json.allFiniteFields, Bool.and_eq_true]
     exact ⟨h (k, v) (by simp), ih (fun z hz => h z (by simp [hz]))⟩
 
-/-- Strict finiteness as a parser invariant. -/
-theorem finiteInvariant (cfg : ParseCfg) :
-    ParseInvariant cfg (fun _ v => cfg.allowInfNan = false → v.allFinite = true) where
-  scalar _ a _ ha hn _ := by
-    cases a with
-    | num n => exact absurd rfl (hn n)
-    | arr xs => rcases xs with ⟨_ | _⟩ <;> first | rfl | simp [Json.height] at ha
-    | obj kvs => rcases kvs with ⟨_ | ⟨⟨_, _⟩, _⟩⟩ <;> first | rfl | simp [Json.height] at ha
-    | _ => rfl
-  num _ _ _ _ _ _ hx hs := by simpa [Json.allFinite] using parseNumber_strict_finite hs hx
-  nonfinite _ _ ha := ⟨fun hs => absurd (ha.symm.trans hs) (by decide),
-    fun hs => absurd (ha.symm.trans hs) (by decide)⟩
-  arr _ ys _ h hs := by simpa [Json.allFinite] using allFiniteList_of (fun y hy => h y hy hs)
-  obj _ kvs _ h hs := by simpa [Json.allFinite] using allFiniteFields_of (fun kv hkv => h kv hkv hs)
+/-- **Strict mode returns RFC 8259 JSON**: under `allowInfNan = false`, no
+value read has a `NaN` or infinity. -/
+theorem valueL_finite (cfg : ParseCfg) (hs : cfg.allowInfNan = false) :
+    ∀ (d : Nat) (L : List UInt8) {v : Json} {p : Nat}, valueL cfg d L = .ok (v, p) → v.allFinite = true
+  | 0, _, _, _, h => by simp [valueL, valueGo] at h
+  | d + 1, L, v, p, h => by
+    rw [valueL_succ] at h
+    have hn := (valueStep_shape (P := fun w => w.allFinite = true) cfg (viewOk_lv L) ?_ h).1
+    · match v, hn with
+      | .arr ⟨xs⟩, hn => simpa [Json.allFinite] using allFiniteList_of hn
+      | .obj ⟨kvs⟩, hn => simpa [Json.allFinite] using allFiniteFields_of hn
+      | .num x, hn => simpa [Node, Json.allFinite, hs] using hn
+      | .null, _ | .bool _, _ | .str _, _ => rfl
+    · intro j w q _ _ hw
+      dsimp only at hw
+      cases hc : valueL cfg d (L.drop j) with
+      | error e => rw [hc] at hw; cases hw
+      | ok r =>
+        obtain ⟨w', q'⟩ := r
+        rw [hc] at hw; cases hw
+        have := (valueL_progress cfg d _ hc)
+        simp at this
+        exact ⟨valueL_finite cfg hs d _ hc, by omega, by omega⟩
 
-/-- **Strict mode returns RFC 8259 JSON**: no `NaN` or infinity. -/
-theorem parse_finite {cfg : ParseCfg} (hs : cfg.allowInfNan = false) {bs : ByteArray} {v : Json}
-    (h : parseDocumentWith cfg bs = .ok v) : v.allFinite = true :=
-  parse_invariant (finiteInvariant cfg) h hs
+mutual
+/-- A value within `cfg`'s limits, inside `k` containers, is lower than its
+depth limit. -/
+theorem fitsAt_height {cfg : ParseCfg} {L : Nat} (hL : cfg.maxDepth = some L) :
+    ∀ (k : Nat) (v : Json), FitsAt cfg k v → k + v.height < L
+  | k, .arr ⟨xs⟩, h => height_arr ((depthOk_some hL).mp h.1) (fitsList_height hL (k + 1) xs h.2)
+  | k, .obj ⟨kvs⟩, h => height_obj ((depthOk_some hL).mp h.1) (fitsFields_height hL (k + 1) kvs h.2.2)
+  | k, .num _, h => by simpa [Json.height] using (depthOk_some hL).mp h.1
+  | k, .null, h | k, .bool _, h | k, .str _, h => by simpa [Json.height] using (depthOk_some hL).mp h
+theorem fitsList_height {cfg : ParseCfg} {L : Nat} (hL : cfg.maxDepth = some L) :
+    ∀ (k : Nat) (xs : List Json), FitsList cfg k xs → ∀ x ∈ xs, k + x.height < L
+  | _, [], _, _, hx => nomatch hx
+  | k, x :: xs, h, y, hy =>
+    (List.mem_cons.mp hy).elim (fun e => e ▸ fitsAt_height hL k x h.1) (fitsList_height hL k xs h.2 y)
+theorem fitsFields_height {cfg : ParseCfg} {L : Nat} (hL : cfg.maxDepth = some L) :
+    ∀ (k : Nat) (kvs : List (String × Json)), FitsFields cfg k kvs → ∀ kv ∈ kvs, k + kv.2.height < L
+  | _, [], _, _, hx => nomatch hx
+  | k, (_, v) :: kvs, h, y, hy =>
+    (List.mem_cons.mp hy).elim (fun e => e ▸ fitsAt_height hL k v h.1) (fitsFields_height hL k kvs h.2 y)
+end
+
+theorem fits_height {cfg : ParseCfg} {L : Nat} (hL : cfg.maxDepth = some L) {v : Json} (h : Fits cfg v) :
+    v.height < L := by
+  simpa using fitsAt_height hL 0 v h
 
 /-! ## Values within the limits -/
 

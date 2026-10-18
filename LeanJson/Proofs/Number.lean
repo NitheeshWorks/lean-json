@@ -22,35 +22,29 @@ def IntDigits (ds : List Nat) : Prop :=
 /-- A nonempty run of decimal digits. -/
 def Digits1 (ds : List Nat) : Prop := ds ≠ [] ∧ ∀ d ∈ ds, d < 10
 
-theorem fuel_of_at {bs : ByteArray} {pos : Nat} {l rest : List UInt8} (h : At bs pos l rest) :
-    l.length ≤ bs.size := by
-  by_cases hl : l = []
-  · subst hl; simp
-  · have := h.le_size hl; omega
-
-theorem digits1_ext {bs : ByteArray} {pos : Nat} {ds : List Nat} {rest : List UInt8}
-    (hd : Digits1 ds) (h : At bs pos (ds.map digitByte) rest) (hr : DigitStop rest) :
-    digits1 bs pos = .ok (ofDigits ds, ds.length, pos + ds.length) := by
+theorem digits1_ext {get : Nat → Option UInt8} {sz : Nat} {pos : Nat} {ds : List Nat} {rest : List UInt8}
+    (hd : Digits1 ds) (h : AtV get sz pos (ds.map digitByte) rest) (hr : DigitStop rest) :
+    digits1 get sz pos = .ok (ofDigits ds, ds.length, pos + ds.length) := by
   unfold digits1
-  rw [scanDigits_ext bs rest hr ds pos 0 hd.2 h]
+  rw [scanDigits_ext get sz rest hr ds pos 0 hd.2 h]
   have : ds.length ≠ 0 := by simpa using hd.1
   simp only [Nat.zero_add, this, ↓reduceIte]
   rw [digitsValue_ext ds pos hd.2 h]
 
-theorem parseIntPart_ext {bs : ByteArray} {pos : Nat} {ds : List Nat} {rest : List UInt8}
-    (hd : IntDigits ds) (h : At bs pos (ds.map digitByte) rest) (hr : DigitStop rest) :
-    parseIntPart bs pos = .ok (ofDigits ds, pos + ds.length) := by
+theorem parseIntPart_ext {get : Nat → Option UInt8} {sz : Nat} {pos : Nat} {ds : List Nat} {rest : List UInt8}
+    (hd : IntDigits ds) (h : AtV get sz pos (ds.map digitByte) rest) (hr : DigitStop rest) :
+    parseIntPart get sz pos = .ok (ofDigits ds, pos + ds.length) := by
   obtain ⟨hne, h10, h0⟩ := hd
   match ds, hne, h10, h0, h with
   | d :: t, _, h10, h0, h =>
     have hd10 : d < 10 := h10 d (by simp)
     unfold parseIntPart
-    rw [At.get h]
+    rw [AtV.get h]
     by_cases hz : d = 0
     · subst hz
       have ht : t = [] := by simpa using h0 rfl
       subst ht
-      have h' := At.nil (At.next h)
+      have h' := AtV.nil (AtV.next h)
       have : (digitByte 0 == 48) = true := by decide
       simp only [this, ↓reduceIte, h']
       cases hh : rest.head? with
@@ -60,7 +54,7 @@ theorem parseIntPart_ext {bs : ByteArray} {pos : Nat} {ds : List Nat} {rest : Li
         have : digitByte d ≠ 48 := fun e => hz ((digitByte_zero_iff ⟨d, hd10⟩).mp e)
         simpa using this
       simp only [hne48, Bool.false_eq_true, ↓reduceIte, digitByte_isDigit ⟨d, hd10⟩]
-      rw [scanDigits_ext bs rest hr (d :: t) pos 0 h10 h]
+      rw [scanDigits_ext get sz rest hr (d :: t) pos 0 h10 h]
       simp only [Nat.zero_add]
       rw [digitsValue_ext (d :: t) pos h10 h]
 
@@ -84,10 +78,10 @@ theorem natDigits_intDigits (n : Nat) : IntDigits (natDigits n) := by
   refine ⟨natDigits_ne_nil n, h2, ?_⟩
   rw [e]; intro hh; simp at hh; subst hh; rw [h5 rfl]
 
-theorem parseFrac_none {bs : ByteArray} {pos : Nat} {rest : List UInt8}
-    (h : At bs pos [] rest) (hr : rest.head? ≠ some 46) : parseFrac bs pos = .ok (0, 0, pos) := by
+theorem parseFrac_none {get : Nat → Option UInt8} {sz : Nat} {pos : Nat} {rest : List UInt8}
+    (h : AtV get sz pos [] rest) (hr : rest.head? ≠ some 46) : parseFrac get sz pos = .ok (0, 0, pos) := by
   unfold parseFrac
-  rw [At.nil h]
+  rw [AtV.nil h]
   cases hh : rest.head? with
   | none => rfl
   | some b =>
@@ -97,18 +91,18 @@ theorem parseFrac_none {bs : ByteArray} {pos : Nat} {rest : List UInt8}
     · rename_i heq; simp at heq; exact absurd heq this
     · rfl
 
-theorem parseFrac_some {bs : ByteArray} {pos : Nat} {fs : List Nat} {rest : List UInt8}
-    (hd : Digits1 fs) (h : At bs pos (fracBytes (some fs)) rest) (hr : DigitStop rest) :
-    parseFrac bs pos = .ok (ofDigits fs, fs.length, pos + 1 + fs.length) := by
+theorem parseFrac_some {get : Nat → Option UInt8} {sz : Nat} {pos : Nat} {fs : List Nat} {rest : List UInt8}
+    (hd : Digits1 fs) (h : AtV get sz pos (fracBytes (some fs)) rest) (hr : DigitStop rest) :
+    parseFrac get sz pos = .ok (ofDigits fs, fs.length, pos + 1 + fs.length) := by
   unfold parseFrac
   simp only [fracBytes] at h
-  rw [At.get h]
-  exact digits1_ext hd (At.next h) hr
+  rw [AtV.get h]
+  exact digits1_ext hd (AtV.next h) hr
 
-theorem parseExp_none {bs : ByteArray} {pos : Nat} {rest : List UInt8}
-    (h : At bs pos [] rest) (hr : NumStop rest) : parseExp bs pos = .ok (false, 0, pos) := by
+theorem parseExp_none {get : Nat → Option UInt8} {sz : Nat} {pos : Nat} {rest : List UInt8}
+    (h : AtV get sz pos [] rest) (hr : NumStop rest) : parseExp get sz pos = .ok (false, 0, pos) := by
   unfold parseExp
-  rw [At.nil h]
+  rw [AtV.nil h]
   cases hh : rest.head? with
   | none => rfl
   | some b =>
@@ -132,30 +126,30 @@ theorem printExp_length (i : Int) : (printExp i).length = 1 + (natDigits i.natAb
     have : i.toNat = i.natAbs := by omega
     rw [this]; omega
 
-theorem parseExp_some {bs : ByteArray} {pos : Nat} {i : Int} {rest : List UInt8}
-    (h : At bs pos (expBytes (some i)) rest) (hr : DigitStop rest) :
-    parseExp bs pos = .ok (true, i, pos + (expBytes (some i)).length) := by
+theorem parseExp_some {get : Nat → Option UInt8} {sz : Nat} {pos : Nat} {i : Int} {rest : List UInt8}
+    (h : AtV get sz pos (expBytes (some i)) rest) (hr : DigitStop rest) :
+    parseExp get sz pos = .ok (true, i, pos + (expBytes (some i)).length) := by
   unfold parseExp
   simp only [expBytes] at h
-  rw [At.get h]
+  rw [AtV.get h]
   simp only [show ((101 : UInt8) == 101 || (101 : UInt8) == 69) = true by decide, ↓reduceIte]
-  have h1 := At.next h
+  have h1 := AtV.next h
   unfold printExp at h1
   by_cases hneg : i < 0
   · simp only [hneg, ↓reduceIte] at h1
-    rw [At.get h1]
+    rw [AtV.get h1]
     simp only
-    rw [digits1_ext (natDigits_digits1 _) (At.next h1) hr]
+    rw [digits1_ext (natDigits_digits1 _) (AtV.next h1) hr]
     simp only [bind, Except.bind, expBytes, List.length_cons, printExp_length, ofDigits_natDigits]
     rw [show -(i.natAbs : Int) = i by omega]
     congr 3; omega
   · simp only [hneg, ↓reduceIte] at h1
     have hnn : i.toNat = i.natAbs := by omega
     rw [hnn] at h1
-    rw [At.get h1]
+    rw [AtV.get h1]
     simp only
     rw [printNat_eq] at h1
-    rw [digits1_ext (natDigits_digits1 _) (At.next h1) hr]
+    rw [digits1_ext (natDigits_digits1 _) (AtV.next h1) hr]
     simp only [bind, Except.bind, expBytes, List.length_cons, printExp_length, ofDigits_natDigits]
     rw [show (i.natAbs : Int) = i by omega]
     congr 3; omega
@@ -187,16 +181,16 @@ theorem digitByte_ne_73 : ∀ d : Fin 10, digitByte d.val ≠ 73 := by decide
 
 /-- The shape every printed number has: optional `-`, integer digits,
 optional fraction, optional exponent. -/
-theorem parseNumber_shape (cfg : ParseCfg) {bs : ByteArray} {pos : Nat} (sneg : Bool) (ip : List Nat)
+theorem parseNumber_shape (cfg : ParseCfg) {get : Nat → Option UInt8} {sz : Nat} {pos : Nat} (sneg : Bool) (ip : List Nat)
     (fp : Option (List Nat)) (ex : Option Int) {rest : List UInt8}
     (hip : IntDigits ip) (hfp : ∀ fs, fp = some fs → Digits1 fs)
     (hlen : cfg.intLenOk ((if sneg then 1 else 0) + ip.length) = true)
-    (h : At bs pos ((if sneg then [45] else []) ++ ip.map digitByte ++ fracBytes fp ++ expBytes ex) rest)
+    (h : AtV get sz pos ((if sneg then [45] else []) ++ ip.map digitByte ++ fracBytes fp ++ expBytes ex) rest)
     (hr : NumStop rest) :
-    parseNumber cfg bs pos = .ok (mkNumber sneg (ofDigits ip) ((fp.map ofDigits).getD 0)
+    parseNumber cfg get sz pos = .ok (mkNumber sneg (ofDigits ip) ((fp.map ofDigits).getD 0)
       ((fp.map List.length).getD 0) ex.isSome (ex.getD 0),
       pos + ((if sneg then [45] else []) ++ ip.map digitByte ++ fracBytes fp ++ expBytes ex).length) := by
-  have hneg : (bs[pos]? == some 45) = sneg := by
+  have hneg : (get pos == some 45) = sneg := by
     cases sneg
     · obtain ⟨d, t, e⟩ : ∃ d t, ip = d :: t := by
         cases ip with
@@ -205,12 +199,12 @@ theorem parseNumber_shape (cfg : ParseCfg) {bs : ByteArray} {pos : Nat} (sneg : 
       have hd10 : d < 10 := hip.2.1 d (by simp [e])
       subst e
       simp only [Bool.false_eq_true, ↓reduceIte, List.nil_append, List.map_cons, List.cons_append] at h
-      rw [At.get h]
+      rw [AtV.get h]
       have := (digitByte_ne ⟨d, hd10⟩).2.2.2.1
       simpa using this
     · simp only [↓reduceIte, List.cons_append] at h
-      rw [At.get h]; rfl
-  have h0 : At bs (pos + (if sneg then 1 else 0)) (ip.map digitByte) (fracBytes fp ++ expBytes ex ++ rest) := by
+      rw [AtV.get h]; rfl
+  have h0 : AtV get sz (pos + (if sneg then 1 else 0)) (ip.map digitByte) (fracBytes fp ++ expBytes ex ++ rest) := by
     cases sneg
     · simp only [Bool.false_eq_true, ↓reduceIte, List.nil_append] at h
       simpa [List.append_assoc] using h.assoc.assoc
@@ -218,9 +212,9 @@ theorem parseNumber_shape (cfg : ParseCfg) {bs : ByteArray} {pos : Nat} (sneg : 
       have := h.next
       simpa [List.append_assoc] using this.assoc.assoc
   have hI := parseIntPart_ext hip h0 (digitStop_frac_exp fp ex rest hr)
-  have h1 : At bs (pos + (if sneg then 1 else 0) + ip.length) (fracBytes fp ++ expBytes ex) rest := by
+  have h1 : AtV get sz (pos + (if sneg then 1 else 0) + ip.length) (fracBytes fp ++ expBytes ex) rest := by
     simpa using h0.app'.app
-  have hbody : parseNumber cfg bs pos = parseNumberBody cfg bs pos sneg (pos + (if sneg then 1 else 0)) := by
+  have hbody : parseNumber cfg get sz pos = parseNumberBody cfg get sz pos sneg (pos + (if sneg then 1 else 0)) := by
     unfold parseNumber
     simp only [hneg]
     cases sneg
@@ -231,8 +225,8 @@ theorem parseNumber_shape (cfg : ParseCfg) {bs : ByteArray} {pos : Nat} (sneg : 
         | cons d t => exact ⟨d, t, rfl⟩
       have hd10 : d < 10 := hip.2.1 d (by simp [e])
       rw [e] at h0
-      have hg : bs[pos + 1]? = some (digitByte d) := by simpa using h0.get
-      have h73 : (bs[pos + 1]? == some 73) = false := by
+      have hg : get (pos + 1) = some (digitByte d) := by simpa using h0.get
+      have h73 : (get (pos + 1) == some 73) = false := by
         rw [hg]
         simpa using digitByte_ne_73 ⟨d, hd10⟩
       simp [h73]
@@ -433,8 +427,8 @@ theorem layoutShape (d : Decimal) : ∃ ip fp ex, LayoutShape d ip fp ex := by
       · rw [← ofDigits_append, List.take_append_drop, hval]; simp
       · simp; omega
 
-theorem expectLit_ext {bs : ByteArray} :
-    ∀ (lit : List UInt8) (p : Nat) {R : List UInt8}, At bs p lit R → expectLit bs p lit = .ok (p + lit.length)
+theorem expectLit_ext {get : Nat → Option UInt8} {sz : Nat} :
+    ∀ (lit : List UInt8) (p : Nat) {R : List UInt8}, AtV get sz p lit R → expectLit get p lit = .ok (p + lit.length)
   | [], p, R, _ => by simp [expectLit]
   | c :: cs, p, R, h => by
     simp only [expectLit, h.get, beq_self_eq_true, ↓reduceIte]
@@ -445,11 +439,11 @@ theorem expectLit_ext {bs : ByteArray} :
 every configuration within its integer limit, and `-Infinity` when NaN and
 the infinities are allowed (`NaN` and `Infinity` are read at the value level,
 by `parseValue`, since they do not start like a number). -/
-theorem parseNumber_printNumber_ext (cfg : ParseCfg) (n : Number) {bs : ByteArray} {pos : Nat}
+theorem parseNumber_printNumber_ext (cfg : ParseCfg) (n : Number) {get : Nat → Option UInt8} {sz : Nat} {pos : Nat}
     {rest : List UInt8} (hfit : cfg.intLenOk n.intLen = true)
     (hfin : n.isFinite = true ∨ (n = .negInf ∧ cfg.allowInfNan = true))
-    (h : At bs pos (printNumber n) rest) (hr : NumStop rest) :
-    parseNumber cfg bs pos = .ok (n, pos + (printNumber n).length) := by
+    (h : AtV get sz pos (printNumber n) rest) (hr : NumStop rest) :
+    parseNumber cfg get sz pos = .ok (n, pos + (printNumber n).length) := by
   cases n with
   | nan => simp [Number.isFinite] at hfin
   | inf => simp [Number.isFinite] at hfin

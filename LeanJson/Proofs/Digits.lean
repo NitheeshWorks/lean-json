@@ -1,4 +1,4 @@
-import LeanJson.Proofs.Bytes
+import LeanJson.Proofs.Progress
 
 /-!
 # Proofs: digits, digit runs, decimal normal form
@@ -223,48 +223,48 @@ def DigitStop (rest : List UInt8) : Prop := ∀ b, rest.head? = some b → isDig
 theorem NumStop.digitStop {rest : List UInt8} (h : NumStop rest) : DigitStop rest :=
   fun b hb => (h b hb).1
 
-theorem scanDigits_ext (bs : ByteArray) (rest : List UInt8) (hr : DigitStop rest) :
+theorem scanDigits_ext (get : Nat → Option UInt8) (n : Nat) (rest : List UInt8) (hr : DigitStop rest) :
     ∀ (ds : List Nat) (pos cnt : Nat), (∀ d ∈ ds, d < 10) →
-      At bs pos (ds.map digitByte) rest →
-      scanDigits bs pos cnt = (cnt + ds.length, pos + ds.length)
+      AtV get n pos (ds.map digitByte) rest →
+      scanDigits get n pos cnt = (cnt + ds.length, pos + ds.length)
   | [], pos, cnt, _, h => by
     unfold scanDigits
-    by_cases hlt : pos < bs.size
-    · rw [dite_eq_left hlt]
-      have hg := At.nil h
-      cases hh : rest.head? with
-      | none => rw [hh, getElem?_pos bs pos hlt] at hg; cases hg
+    have hg := AtV.nil h
+    split
+    · cases hh : rest.head? with
+      | none => rw [hh] at hg; rw [hg]; rfl
       | some b =>
         rw [hh] at hg
-        rw [getElem_of_get hg hlt, ite_eq_right (by simp [hr b hh])]; rfl
-    · rw [dite_eq_right hlt]; rfl
+        rw [hg]; simp [hr b hh]
+    · rfl
   | d :: ds, pos, cnt, hd, h => by
     have hd10 : d < 10 := hd d (by simp)
-    have hg := At.get h
-    have hlt := lt_size_of_get hg
+    have hg := AtV.get h
+    have hlt : pos < n := by have := h.le_size; simp at this; omega
     unfold scanDigits
-    rw [dite_eq_left hlt, getElem_of_get hg hlt, ite_eq_left (digitByte_isDigit ⟨d, hd10⟩)]
-    rw [scanDigits_ext bs rest hr ds (pos + 1) _ (fun x hx => hd x (by simp [hx])) (At.next h)]
+    simp only [hlt, ↓reduceIte, hg]
+    simp only [digitByte_isDigit ⟨d, hd10⟩, ↓reduceIte]
+    rw [scanDigits_ext get n rest hr ds (pos + 1) _ (fun x hx => hd x (by simp [hx])) (AtV.next h)]
     simp only [List.length_cons]
     rw [show cnt + 1 + ds.length = cnt + (ds.length + 1) by omega,
       show pos + 1 + ds.length = pos + (ds.length + 1) by omega]
 
-theorem smallValue_ext {bs : ByteArray} {R : List UInt8} :
-    ∀ (ds : List Nat) (start acc : Nat), (∀ d ∈ ds, d < 10) → At bs start (ds.map digitByte) R →
-      smallValue bs start ds.length acc = ds.foldl (fun a d => a * 10 + d) acc
+theorem smallValue_ext {get : Nat → Option UInt8} {n : Nat} {R : List UInt8} :
+    ∀ (ds : List Nat) (start acc : Nat), (∀ d ∈ ds, d < 10) → AtV get n start (ds.map digitByte) R →
+      smallValue get start ds.length acc = ds.foldl (fun a d => a * 10 + d) acc
   | [], _, _, _, _ => rfl
   | d :: ds, start, acc, hd, h => by
     have hd10 : d < 10 := hd d (by simp)
     simp only [List.length_cons, smallValue, List.foldl_cons]
-    have hv : digitAt bs start = d := by
-      unfold digitAt; rw [At.get h]
+    have hv : digitAt get start = d := by
+      unfold digitAt; rw [AtV.get h]
       exact digitByte_val ⟨d, hd10⟩
     rw [hv]
-    exact smallValue_ext ds (start + 1) _ (fun x hx => hd x (by simp [hx])) (At.next h)
+    exact smallValue_ext ds (start + 1) _ (fun x hx => hd x (by simp [hx])) (AtV.next h)
 
-theorem digitsValue_ext {bs : ByteArray} {R : List UInt8} (ds : List Nat) (start : Nat)
-    (hd : ∀ d ∈ ds, d < 10) (h : At bs start (ds.map digitByte) R) :
-    digitsValue bs start ds.length = ofDigits ds := by
+theorem digitsValue_ext {get : Nat → Option UInt8} {n : Nat} {R : List UInt8} (ds : List Nat) (start : Nat)
+    (hd : ∀ d ∈ ds, d < 10) (h : AtV get n start (ds.map digitByte) R) :
+    digitsValue get start ds.length = ofDigits ds := by
   rw [digitsValue]
   by_cases hs : ds.length ≤ 16
   · rw [ite_eq_left hs, smallValue_ext ds start 0 hd h]; rfl

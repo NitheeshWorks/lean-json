@@ -38,3 +38,11 @@ root = "tests.Wide"
 [[lean_exe]]
 name = "bench"
 root = "tests.Bench"
+
+# The shared theory library: `Keel.Parser` (the value parser is a
+# `fixDepth` over the grammar's step) and `Keel.Codec`.
+[[require]]
+name = "Keel"
+git = "https://github.com/NitheeshWorks/lean-keel"
+rev = "main"
+

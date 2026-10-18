@@ -9,33 +9,56 @@ character; recursion on the remaining input.
 
 namespace LeanJson
 
+/-- The (at most four) bytes from `pos` on, up to the end of the view: enough
+to decode one UTF-8 character. -/
+@[specialize] def window (get : Nat → Option UInt8) (pos : Nat) : ByteArray :=
+  match get pos with
+  | none => .empty
+  | some b0 =>
+    match get (pos + 1) with
+    | none => ByteArray.empty.push b0
+    | some b1 =>
+      match get (pos + 2) with
+      | none => (ByteArray.empty.push b0).push b1
+      | some b2 =>
+        match get (pos + 3) with
+        | none => ((ByteArray.empty.push b0).push b1).push b2
+        | some b3 => (((ByteArray.empty.push b0).push b1).push b2).push b3
+
+/-- The UTF-8 character starting at `pos`, if the bytes there encode one. -/
+@[specialize] def decodeChar? (get : Nat → Option UInt8) (pos : Nat) : Option Char :=
+  (window get pos).utf8DecodeChar? 0
+
 /-- The body of a string literal from `pos` (just after the opening quote)
 to the closing quote; the characters (appended to `acc`) and the position
 after the closing quote. -/
-def parseStrBody (bs : ByteArray) (pos : Nat) (acc : String) : Except ParseErr (String × Nat) :=
-  if h : pos < bs.size then
-    let b := bs[pos]
-    if b == 34 then .ok (acc, pos + 1)
-    else if b == 92 then
-      match he : parseEscape bs (pos + 1) with
-      | .ok (c, p) => parseStrBody bs p (acc.push c)
-      | .error e => .error e
-    else if b < 32 then .error ⟨.controlCharacterWhileParsingString, pos⟩
-    else if b < 128 then parseStrBody bs (pos + 1) (acc.push (Char.ofNat b.toNat))
-    else
-      match bs.utf8DecodeChar? pos with
-      | some c => parseStrBody bs (pos + c.utf8Size) (acc.push c)
-      | none => .error ⟨.invalidUnicodeCodePoint, pos + 1⟩
+@[specialize] def parseStrBody (get : Nat → Option UInt8) (n pos : Nat) (acc : String) :
+    Except ParseErr (String × Nat) :=
+  if pos < n then
+    match get pos with
+    | none => .error ⟨.eofWhileParsingString, pos⟩
+    | some b =>
+      if b == 34 then .ok (acc, pos + 1)
+      else if b == 92 then
+        match _he : parseEscape get n (pos + 1) with
+        | .ok (c, p) => parseStrBody get n p (acc.push c)
+        | .error e => .error e
+      else if b < 32 then .error ⟨.controlCharacterWhileParsingString, pos⟩
+      else if b < 128 then parseStrBody get n (pos + 1) (acc.push (Char.ofNat b.toNat))
+      else
+        match decodeChar? get pos with
+        | some c => parseStrBody get n (pos + c.utf8Size) (acc.push c)
+        | none => .error ⟨.invalidUnicodeCodePoint, pos + 1⟩
   else .error ⟨.eofWhileParsingString, pos⟩
-termination_by bs.size - pos
+termination_by n - pos
 decreasing_by
   all_goals first
     | omega
-    | (have := parseEscape_next he; simp at this; omega)
+    | (have := parseEscape_next _he; simp at this; omega)
     | (have := Char.utf8Size_pos c; omega)
 
 /-- A string literal whose opening quote is at `pos`. -/
-def parseString (bs : ByteArray) (pos : Nat) : Except ParseErr (String × Nat) :=
-  parseStrBody bs (pos + 1) ""
+@[specialize] def parseString (get : Nat → Option UInt8) (n pos : Nat) : Except ParseErr (String × Nat) :=
+  parseStrBody get n (pos + 1) ""
 
 end LeanJson

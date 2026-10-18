@@ -97,20 +97,21 @@ beyond Lean's `propext`, `Quot.sound`, `Classical.choice`.
 * **On any continuation.** `parse_print_ext`: the printed form followed by any
   bytes that cannot extend a number parses back with the cursor just past it,
   so values compose inside larger buffers.
-* **One codec theory.** `Codec` packages an encoder, a decoder and the law
-  above; strings (`stringCodec`, with `\uXXXX` and surrogate pairs), numbers
-  (`numberCodec`: integers of any size, floats with exact mantissa, exponent
-  and the sign of zero) and values (`valueCodec`) are its instances, and
-  `Codec.decode_encode` and `Codec.encode_injective` are proved once for all.
+* **Keel codecs.** Strings (`stringCodec`, with `\uXXXX` and surrogate
+  pairs), numbers (`numberCodec`: integers of any size, floats with exact
+  mantissa, exponent and the sign of zero) and values (`valueCodec`) are
+  `Keel.Codec`s, so Keel's `Codec.decode_encode` and `Codec.encode_injective`
+  hold of them. The value decoder is `jsonParser`: the grammar's step tied by
+  Keel's depth-bounded `Parser.fixDepth` at jiter's limit, and
+  `valueL_ok_iff` proves the fast parser succeeds exactly where it does.
 * **The printer is injective**: `print_injective o : Function.Injective (printWith o 0)`
   in `constants` mode, and `print_injective_finite` / `to_json_injective_finite`
   on finite values in every `inf_nan_mode`.
 * **Compact output**: `print_compact` — no tab, LF or CR byte, and a space only
   inside a string that contains one.
-* **Total parsing, no fuel.** Every production returns a `Step` whose type
-  records that the cursor moved forward and stayed in the buffer, so the
-  recursion is well founded on the remaining input; `step_progress` reads that
-  back for the public parser.
+* **Total parsing, no fuel.** Nesting is structural on a budget of levels and
+  every loop is well founded on the bytes left; `step_progress`: every
+  success moves forward and stays in the buffer.
 * **Canonical input.** `parse_canonical`: if the input is the printing of some
   value (with no repeated key, when keys are collapsed), the parse returns
   that value.

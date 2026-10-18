@@ -84,8 +84,8 @@ id = "roundtrip.value"
 upstream = "tests/test_json.py::test_to_json"
 title = "Round trip: parse (print j) = .ok j, on any continuation, every print option"
 status = "implemented"
-realises = ["LeanJson.Codec", "LeanJson.valueCodec"]
-theorem = ["LeanJson.from_json_to_json", "LeanJson.to_json_injective", "LeanJson.parse_print", "LeanJson.parseLossless_print", "LeanJson.parse_print_ext", "LeanJson.parseValue_ext", "LeanJson.Codec.decode_encode"]
+realises = ["LeanJson.valueCodec", "LeanJson.jsonParser", "LeanJson.valueNode", "LeanJson.valueStep", "LeanJson.valueGo"]
+theorem = ["LeanJson.from_json_to_json", "LeanJson.to_json_injective", "LeanJson.parse_print", "LeanJson.parseLossless_print", "LeanJson.parse_print_ext", "LeanJson.parseValueAt_print", "LeanJson.valueGo_ext", "LeanJson.valueStep_ext", "LeanJson.valueL_ok_iff", "Keel.Codec.decode_encode", "Keel.Codec.encode_injective"]
 test = ["tests/Props.lean::parse (print v) = v, compact"]
 
 [[requirement]]
@@ -93,7 +93,7 @@ id = "roundtrip.string"
 upstream = "tests/test_json.py::test_str"
 title = "Strings: escapes \\\" \\\\ \\/ \\b \\f \\n \\r \\t \\uXXXX and surrogate pairs; raw UTF-8"
 status = "implemented"
-realises = ["LeanJson.parseString", "LeanJson.printString", "LeanJson.stringCodec"]
+realises = ["LeanJson.parseString", "LeanJson.parseStringAt", "LeanJson.stringParser", "LeanJson.printString", "LeanJson.stringCodec", "LeanJson.lexerCodec"]
 theorem = ["LeanJson.parseString_printString_ext", "LeanJson.string_ext", "LeanJson.strStep"]
 test = ["tests/Conformance.lean::surrogate pair", "tests/Conformance.lean::escaped slash"]
 
@@ -102,7 +102,7 @@ id = "roundtrip.number"
 upstream = "tests/test_json.py::test_int"
 title = "Numbers: integer literals are ints of any size up to the limit, others exact normalised decimals; serde/ryu float layout"
 status = "implemented"
-realises = ["LeanJson.parseNumber", "LeanJson.printNumber", "LeanJson.numberCodec", "LeanJson.Decimal.normalize"]
+realises = ["LeanJson.parseNumber", "LeanJson.parseNumberAt", "LeanJson.numberParser", "LeanJson.printNumber", "LeanJson.numberCodec", "LeanJson.Decimal.normalize"]
 theorem = ["LeanJson.parseNumber_printNumber_ext", "LeanJson.number_ext", "LeanJson.normalize_mul"]
 test = ["tests/Conformance.lean::big integer", "tests/Conformance.lean::float layout"]
 
@@ -190,10 +190,10 @@ test = ["tests/Conformance.lean::inf, null mode", "tests/Conformance.lean::nan, 
 [[requirement]]
 id = "recursion_limit"
 upstream = "jiter recursion limit (pydantic-core 2.50.1 from_json)"
-title = "jiter's nesting limit: a value inside 201 containers is 'recursion limit exceeded' at its offset (201 nested empty containers parse); enforced inside the parser (ParseCfg.maxDepth); element and member loops are tail-recursive, so neither depth nor width can exhaust the stack"
+title = "jiter's nesting limit: a value inside 201 containers is 'recursion limit exceeded' at its offset (201 nested empty containers parse); enforced inside the parser as a budget of levels (valueGo, ParseCfg.budget), which is Keel's fixDepth at the limit (jsonParser); element and member loops are tail-recursive, so neither depth nor width can exhaust the stack"
 status = "implemented"
-realises = ["LeanJson.ParseCfg.maxDepth", "LeanJson.ParseCfg.depthOk", "LeanJson.ErrorKind.recursionLimitExceeded", "LeanJson.parseValueWith", "LeanJson.parseElems"]
-theorem = ["LeanJson.parse_height", "LeanJson.parseDocument_height", "LeanJson.fits_default", "LeanJson.from_json_to_json"]
+realises = ["LeanJson.ParseCfg.maxDepth", "LeanJson.ParseCfg.budget", "LeanJson.ErrorKind.recursionLimitExceeded", "LeanJson.valueGo", "LeanJson.jsonParser", "LeanJson.parseElems"]
+theorem = ["LeanJson.parse_height", "LeanJson.parseDocument_height", "LeanJson.valueL_height", "LeanJson.valueL_deepen", "LeanJson.valueNode_monotone", "Keel.Parser.fixDepth_ok", "LeanJson.fits_default", "LeanJson.from_json_to_json"]
 test = ["tests/Conformance.lean::202 nested arrays", "tests/Conformance.lean::100000 open brackets", "tests/Props.lean::random nesting: depth ≤ 200 parses, deeper is recursion limit exceeded"]
 
 [[requirement]]
@@ -226,8 +226,8 @@ test = ["tests/Props.lean::Lean.Json bridge: ofLean (toLean v) = v on its common
 [[requirement]]
 id = "total"
 upstream = "jiter (total parsing)"
-title = "Parser is total with no fuel: each production returns a Step (progress in its type), recursion is well founded on the remaining input"
+title = "Parser is total with no fuel: nesting is structural on the budget of levels, every loop is well founded on the bytes left (guarded by its own progress check), and every success moves forward within the input"
 status = "implemented"
-realises = ["LeanJson.parseValueWith", "LeanJson.Step", "LeanJson.Step.lift", "LeanJson.skipWs", "LeanJson.parseStrBody"]
-theorem = ["LeanJson.step_progress", "LeanJson.parseValueAt_progress", "LeanJson.parseValueAtD_eq"]
+realises = ["LeanJson.valueGo", "LeanJson.parseElems", "LeanJson.parseMembers", "LeanJson.skipWs", "LeanJson.parseStrBody"]
+theorem = ["LeanJson.step_progress", "LeanJson.parseValueAt_progress", "LeanJson.valueL_progress", "LeanJson.valueStep_shape"]
 test = ["tests/Props.lean::random bytes: errors in bounds, results within the depth limit"]
